@@ -1,0 +1,6 @@
+{
+  "name": "Nano-Medika: Ekspedisi Mikro",
+  "description": "Game aksi 3D dengan fisika fluida dan grafik ray-traced tentang Profesor Aris dan robot asistennya B.I.O.-7 yang menjelajahi tubuh cucunya dari mulut hingga sistem saraf pusat dan jantung untuk membasmi virus misterius.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
