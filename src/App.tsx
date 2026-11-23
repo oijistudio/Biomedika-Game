@@ -99,6 +99,25 @@ export default function App() {
     });
     engineRef.current = engine;
 
+    // Resolve canonical URL & OpenGraph image dynamically for deployed origin
+    try {
+      const pageUrl = window.location.origin + window.location.pathname;
+      const ogImgUrl = window.location.origin + '/og-preview.jpg';
+      let canonical = document.querySelector('link[rel="canonical"]');
+      if (!canonical) {
+        canonical = document.createElement('link');
+        canonical.setAttribute('rel', 'canonical');
+        document.head.appendChild(canonical);
+      }
+      canonical.setAttribute('href', pageUrl);
+      document.querySelector('meta[property="og:url"]')?.setAttribute('content', pageUrl);
+      document.querySelector('meta[property="og:image"]')?.setAttribute('content', ogImgUrl);
+      document.querySelector('meta[property="og:image:secure_url"]')?.setAttribute('content', ogImgUrl);
+      document.querySelector('meta[name="twitter:image"]')?.setAttribute('content', ogImgUrl);
+    } catch {
+      // Ignore if running in restricted context
+    }
+
     return () => {
       engine.dispose();
       engineRef.current = null;
@@ -132,10 +151,10 @@ export default function App() {
 
   return (
     <main
-      className={`relative bg-[#070c16] ${
+      className={`relative ${
         isScrollableTitle
-          ? 'min-h-screen w-full overflow-x-hidden'
-          : 'h-screen w-screen overflow-hidden touch-none'
+          ? 'min-h-screen w-full overflow-x-hidden bg-white text-slate-900'
+          : 'h-screen w-screen overflow-hidden touch-none bg-[#070c16]'
       }`}
     >
       {/* Isolated WebGL Canvas Mount */}

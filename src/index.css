@@ -7,7 +7,8 @@ body,
   height: 100%;
   margin: 0;
   padding: 0;
-  background-color: #070c16;
+  background-color: #ffffff;
+  color: #0f172a;
   font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   -webkit-user-select: none;
   user-select: none;
@@ -16,4 +17,43 @@ body,
 
 .font-display {
   font-family: 'Outfit', 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@keyframes bioFloatSlow {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  50% {
+    transform: translate3d(0, -10px, 0) rotate(2deg);
+  }
+}
+
+@keyframes bioHelixDrift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -14px, 0);
+  }
+}
+
+.bio-float-slow {
+  animation: bioFloatSlow 9s ease-in-out infinite;
+}
+
+.bio-helix-drift {
+  animation: bioHelixDrift 12s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bio-float-slow,
+  .bio-helix-drift {
+    animation: none;
+  }
 }

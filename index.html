@@ -1,21 +1,87 @@
 <!doctype html>
-<html lang="en">
+<html lang="id">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>Nano-Medika: Ekspedisi Mikro — 3D Ray-Traced Bio-Adventure</title>
-    <meta name="description" content="Game aksi 3D dengan fisika fluida dan grafik ray-traced tentang Profesor Aris dan robot asistennya B.I.O.-7 yang menjelajahi tubuh cucunya untuk membasmi virus misterius." />
-    <meta property="og:title" content="Nano-Medika: Ekspedisi Mikro" />
-    <meta property="og:description" content="Jelajahi anatomi manusia dari mulut hingga sistem saraf pusat, jantung, organ vital, dan usus panjang dalam aksi 3D ray-traced." />
+    <title>Nano-Medika: Ekspedisi Mikro 3D — Aksi Biologi Ray-Traced</title>
+    <meta
+      name="description"
+      content="Masuki tubuh Raka bersama Profesor Aris dan robot B.I.O.-7 dalam aksi 3D ray-traced melewati 10 zona organ dari mulut hingga sistem saraf pusat dan jantung."
+    />
+    <meta name="author" content="Nano-Medika Studio" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="color-scheme" content="light" />
+
+    <!-- Browser Tab Icons & Apple Touch Icon -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/jpeg" sizes="512x512" href="/apple-touch-icon.jpg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.jpg" />
+    <link rel="shortcut icon" href="/favicon.svg" />
+
+    <!-- OpenGraph Metadata -->
     <meta property="og:type" content="website" />
+    <meta property="og:locale" content="id_ID" />
+    <meta property="og:site_name" content="Nano-Medika: Ekspedisi Mikro" />
+    <meta property="og:url" content="/" />
+    <meta property="og:title" content="Nano-Medika: Ekspedisi Mikro 3D — Aksi Biologi Ray-Traced" />
+    <meta
+      property="og:description"
+      content="Masuki tubuh Raka bersama Profesor Aris dan robot B.I.O.-7 dalam aksi 3D ray-traced melewati 10 zona organ dari mulut hingga sistem saraf pusat dan jantung."
+    />
+    <meta property="og:image" content="/og-preview.jpg" />
+    <meta property="og:image:secure_url" content="/og-preview.jpg" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1280" />
+    <meta property="og:image:height" content="720" />
+    <meta
+      property="og:image:alt"
+      content="Kapal Nano-Pod dan drone B.I.O.-7 meluncur di aliran darah manusia bersama untaian DNA dan sel darah merah"
+    />
+
+    <!-- Twitter / X Social Card -->
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Nano-Medika: Ekspedisi Mikro 3D — Aksi Biologi Ray-Traced" />
+    <meta
+      name="twitter:description"
+      content="Masuki tubuh Raka bersama Profesor Aris dan robot B.I.O.-7 dalam aksi 3D ray-traced melewati 10 zona organ dari mulut hingga jantung."
+    />
+    <meta name="twitter:image" content="/og-preview.jpg" />
+    <meta
+      name="twitter:image:alt"
+      content="Kapal Nano-Pod dan drone B.I.O.-7 di dalam aliran darah manusia"
+    />
+
+    <!-- Structured Data (Schema.org VideoGame) -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "VideoGame",
+        "name": "Nano-Medika: Ekspedisi Mikro",
+        "description": "Game aksi 3D ray-traced dengan fisika fluida tentang Profesor Aris dan robot B.I.O.-7 yang menyusut ke dalam tubuh cucunya melewati 10 zona organ untuk membasmi patogen misterius.",
+        "genre": ["Action", "Educational", "3D Shooter", "Biology Simulation"],
+        "inLanguage": "id",
+        "applicationCategory": "Game",
+        "operatingSystem": "Web Browser",
+        "playMode": "SinglePlayer",
+        "image": "/og-preview.jpg",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "IDR"
+        }
+      }
+    </script>
+
+    <!-- Fonts: Outfit (Display), Plus Jakarta Sans (Body), JetBrains Mono (Tabular Telemetry) -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-
