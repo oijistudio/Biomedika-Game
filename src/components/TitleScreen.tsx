@@ -174,7 +174,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           className="rounded-lg border border-slate-700/70 px-5 py-2 text-center text-xs font-medium tracking-wide text-slate-300"
           style={{ backgroundColor: 'rgba(7, 12, 22, 0.82)' }}
         >
-          WASD Gerak · Q/E Naik/Turun · Mouse Bidik &amp; Tembak · Spasi Boost · 1-3 Senjata · F B.I.O.-7 · R Ray Tracing · Esc Jeda
+          WASD Gerak · Q/E Naik/Turun · Mouse Bidik &amp; Tembak · Spasi Boost · 1-3 Senjata · F B.I.O.-7 · R Ray Tracing · Ketik &quot;konami&quot; (↑↑↓↓←→←→BA) Tes Ending
         </div>
       </div>
     </div>

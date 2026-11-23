@@ -484,6 +484,8 @@ export interface ProfessorHumanRig {
   head: THREE.Group;
   rightArm: THREE.Group;
   leftArm: THREE.Group;
+  leftLeg: THREE.Mesh;
+  rightLeg: THREE.Mesh;
 }
 
 // Full-size Profesor Aris (bottom-center pivot at y=0, facing +Z by default)
@@ -596,7 +598,7 @@ export function createProfessorHumanModel(mats: MaterialLibrary): ProfessorHuman
 
   root.add(head);
 
-  return { root, head, rightArm, leftArm };
+  return { root, head, rightArm, leftArm, leftLeg, rightLeg };
 }
 
 export interface RakaHumanRig {

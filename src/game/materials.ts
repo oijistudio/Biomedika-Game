@@ -194,11 +194,11 @@ function createLabFloorTexture(maxAniso: number): THREE.CanvasTexture {
   canvas.height = size;
   const ctx = canvas.getContext('2d')!;
 
-  ctx.fillStyle = '#e2e8f0';
+  ctx.fillStyle = '#cbd5e1';
   ctx.fillRect(0, 0, size, size);
 
   const step = 128;
-  ctx.strokeStyle = '#cbd5e1';
+  ctx.strokeStyle = '#64748b';
   ctx.lineWidth = 4;
   for (let i = 0; i <= size; i += step) {
     ctx.beginPath();
@@ -213,7 +213,7 @@ function createLabFloorTexture(maxAniso: number): THREE.CanvasTexture {
   }
 
   // Subtle tile sheen dots
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
   for (let y = 0; y < size; y += step) {
     for (let x = 0; x < size; x += step) {
       ctx.fillRect(x + 8, y + 8, step - 18, 6);
@@ -551,17 +551,19 @@ export function createMaterialLibrary(
     clearcoatRoughness: 0.12,
   });
 
-  // Laboratory Ending Scene Materials
+  // Laboratory Ending Scene Materials (balanced mid-tone slate contrast so highlights stay crisp)
   const labFloor = new THREE.MeshStandardMaterial({
     map: labFloorTex,
-    roughness: 0.32,
-    metalness: 0.06,
+    roughness: 0.48,
+    metalness: 0.08,
+    envMapIntensity: 0.55,
   });
 
   const labWall = new THREE.MeshStandardMaterial({
-    color: 0xf1f5f9,
-    roughness: 0.72,
+    color: 0x94a3b8,
+    roughness: 0.85,
     metalness: 0.02,
+    envMapIntensity: 0.45,
   });
 
   const labDesk = new THREE.MeshPhysicalMaterial({

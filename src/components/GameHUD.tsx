@@ -53,6 +53,16 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   const zone = ZONES[hud.zoneIndex];
   const weaponColor = WEAPONS[hud.activeWeapon].color;
   const ringAccent = ZONE_RING_COLORS[hud.zoneIndex];
+  const lockColor =
+    hud.targetLock.kind === 'boss'
+      ? '#fb7185'
+      : hud.targetLock.kind === 'shield'
+      ? '#facc15'
+      : hud.targetLock.kind === 'neuro'
+      ? '#c084fc'
+      : hud.targetLock.kind === 'spore'
+      ? '#fb923c'
+      : '#a3e635';
 
   // Map world delta (dx, dz) relative to Pod into 120x120 circular radar SVG coordinates
   // Player Pod sits at (60, 68); forward (-Z) points UP (smaller Y).
@@ -100,15 +110,62 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
   return (
     <div className="pointer-events-none fixed inset-0 z-10 select-none">
+      {/* Projected Target Lock-On Crosshair over Active Enemy (crosshair only, no text) */}
+      {hud.targetLock.active && (
+        <div
+          className="fixed -translate-x-1/2 -translate-y-1/2 transition-all duration-75"
+          style={{ left: `${hud.targetLock.screenX}%`, top: `${hud.targetLock.screenY}%` }}
+        >
+          <svg width="62" height="62" viewBox="0 0 64 64" fill="none">
+            <path
+              d="M16 6 H6 V16 M48 6 H58 V16 M16 58 H6 V48 M48 58 H58 V48"
+              stroke={lockColor}
+              strokeWidth="2.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <polygon
+              points="32,12 52,32 32,52 12,32"
+              stroke={lockColor}
+              strokeWidth="1.4"
+              strokeDasharray="5 4"
+              opacity="0.88"
+            />
+            <circle cx="32" cy="32" r="3" fill={lockColor} />
+          </svg>
+        </div>
+      )}
+
       {/* Dynamic Precision Targeting Reticle */}
       <div
         className="fixed -translate-x-1/2 -translate-y-1/2 transition-transform duration-75"
         style={{ left: `${reticlePos.x}%`, top: `${reticlePos.y}%` }}
       >
-        <svg width="42" height="42" viewBox="0 0 42 42" fill="none">
-          <circle cx="21" cy="21" r="15" stroke={weaponColor} strokeWidth="1.5" strokeDasharray="6 5" opacity="0.85" />
-          <circle cx="21" cy="21" r="2.2" fill={weaponColor} />
-          <path d="M21 2 V8 M21 34 V40 M2 21 H8 M34 21 H40" stroke={weaponColor} strokeWidth="1.5" strokeLinecap="round" />
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+          <circle
+            cx="24"
+            cy="24"
+            r={hud.targetLock.active ? 18 : 15}
+            stroke={hud.targetLock.active ? lockColor : weaponColor}
+            strokeWidth={hud.targetLock.active ? '2' : '1.5'}
+            strokeDasharray="6 5"
+            opacity="0.9"
+          />
+          <circle cx="24" cy="24" r="2.4" fill={hud.targetLock.active ? lockColor : weaponColor} />
+          <path
+            d="M24 3 V9 M24 39 V45 M3 24 H9 M39 24 H45"
+            stroke={hud.targetLock.active ? lockColor : weaponColor}
+            strokeWidth="1.6"
+            strokeLinecap="round"
+          />
+          {hud.targetLock.active && (
+            <path
+              d="M12 7 L7 12 M36 7 L41 12 M12 41 L7 36 M36 41 L41 36"
+              stroke={lockColor}
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+          )}
         </svg>
       </div>
 

@@ -43,6 +43,15 @@ const INITIAL_HUD: HudSnapshot = {
   endingStage: 0,
   endingSubtitle: '',
   endingReadyForSummary: false,
+  targetLock: {
+    active: false,
+    screenX: 50,
+    screenY: 50,
+    name: '',
+    hpPct: 100,
+    dist: 0,
+    kind: 'rhino',
+  },
   minimap: {
     playerZ: 2,
     lateralX: 0,

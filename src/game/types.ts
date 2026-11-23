@@ -177,6 +177,16 @@ export interface MinimapSnapshot {
   enemies: MinimapEnemyBlip[];
 }
 
+export interface TargetLockSnapshot {
+  active: boolean;
+  screenX: number; // 0..100 %
+  screenY: number; // 0..100 %
+  name: string;
+  hpPct: number;
+  dist: number;
+  kind: 'rhino' | 'spore' | 'neuro' | 'boss' | 'shield';
+}
+
 export interface HudSnapshot {
   phase: GamePhase;
   hull: number;
@@ -209,5 +219,6 @@ export interface HudSnapshot {
   endingStage: number;
   endingSubtitle: string;
   endingReadyForSummary: boolean;
+  targetLock: TargetLockSnapshot;
   minimap: MinimapSnapshot;
 }

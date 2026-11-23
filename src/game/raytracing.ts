@@ -100,7 +100,8 @@ export interface RayTracingPipeline {
     podWorldPos: THREE.Vector3,
     lightScreenUv: THREE.Vector2,
     elapsed: number,
-    enabled: boolean
+    enabled: boolean,
+    isBrightScene?: boolean
   ) => void;
   setSize: (width: number, height: number) => void;
   getCubeEnvTexture: () => THREE.Texture | null;
@@ -155,7 +156,7 @@ export function createRayTracingPipeline(
   let frameCounter = 0;
 
   return {
-    render: (s, _c, podWorldPos, lightScreenUv, elapsed, enabled) => {
+    render: (s, _c, podWorldPos, lightScreenUv, elapsed, enabled, isBrightScene = false) => {
       frameCounter++;
       if (enabled && frameCounter % 3 === 0) {
         // Update dynamic environment reflection probe around Nano-Pod
@@ -164,9 +165,10 @@ export function createRayTracingPipeline(
       }
 
       rtPass.uniforms.uTime.value = elapsed;
-      rtPass.uniforms.uRtStrength.value = enabled ? 1.0 : 0.0;
+      rtPass.uniforms.uRtStrength.value = enabled ? (isBrightScene ? 0.22 : 1.0) : 0.0;
       rtPass.uniforms.uLightCenter.value.copy(lightScreenUv);
-      bloomPass.strength = enabled ? 0.44 : 0.16;
+      bloomPass.threshold = isBrightScene ? 0.94 : 0.78;
+      bloomPass.strength = enabled ? (isBrightScene ? 0.12 : 0.44) : isBrightScene ? 0.04 : 0.16;
 
       composer.render();
     },

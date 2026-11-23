@@ -713,16 +713,29 @@ export function createLabEndingWorld(mats: MaterialLibrary): LabEndingController
   leftWall.rotation.y = Math.PI / 2;
   group.add(leftWall);
 
-  // Sunlit Laboratory Window on Back Wall
+  // Sky-Blue Laboratory Window with Mullions on Back Wall (non-glaring sky tone)
   const windowFrameGeo = new THREE.BoxGeometry(5.6, 3.2, 0.14);
   const windowPaneGeo = new THREE.PlaneGeometry(5.2, 2.8);
-  const windowMat = new THREE.MeshBasicMaterial({ color: 0xfef9c3 });
-  disposables.push(windowFrameGeo, windowPaneGeo, windowMat);
-  const winFrame = new THREE.Mesh(windowFrameGeo, mats.labDesk);
+  const windowMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+  const trimGeo = new THREE.BoxGeometry(24, 1.35, 0.08);
+  const trimMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.7 });
+  const mullionVGeo = new THREE.BoxGeometry(0.12, 2.8, 0.08);
+  const mullionHGeo = new THREE.BoxGeometry(5.2, 0.12, 0.08);
+  disposables.push(windowFrameGeo, windowPaneGeo, windowMat, trimGeo, trimMat, mullionVGeo, mullionHGeo);
+
+  const wainscotBack = new THREE.Mesh(trimGeo, trimMat);
+  wainscotBack.position.set(0, 0.68, -5.45);
+  group.add(wainscotBack);
+
+  const winFrame = new THREE.Mesh(windowFrameGeo, mats.darkChassis);
   winFrame.position.set(-2.2, 3.2, -5.42);
   const winPane = new THREE.Mesh(windowPaneGeo, windowMat);
   winPane.position.set(-2.2, 3.2, -5.34);
-  group.add(winFrame, winPane);
+  const mulV = new THREE.Mesh(mullionVGeo, mats.darkChassis);
+  mulV.position.set(-2.2, 3.2, -5.3);
+  const mulH = new THREE.Mesh(mullionHGeo, mats.darkChassis);
+  mulH.position.set(-2.2, 3.2, -5.3);
+  group.add(winFrame, winPane, mulV, mulH);
 
   // 2. Bio-Expansion / De-Shrink Pad (left-center at x = -2.2, z = 0.2)
   const padPosition = new THREE.Vector3(-2.2, 0, 0.2);
@@ -738,16 +751,16 @@ export function createLabEndingWorld(mats: MaterialLibrary): LabEndingController
 
   const padRingGeo = new THREE.TorusGeometry(1.38, 0.06, 10, 32);
   padRingGeo.rotateX(Math.PI / 2);
-  const padRingMat = new THREE.MeshBasicMaterial({ color: 0x22d3ee });
+  const padRingMat = new THREE.MeshBasicMaterial({ color: 0x06b6d4 });
   const padRing = new THREE.Mesh(padRingGeo, padRingMat);
   padRing.position.y = 0.18;
   padGroup.add(padRing);
 
   const beamGeo = new THREE.CylinderGeometry(1.25, 1.25, 3.6, 24, 1, true);
   const beamMat = new THREE.MeshBasicMaterial({
-    color: 0x38bdf8,
+    color: 0x0ea5e9,
     transparent: true,
-    opacity: 0.25,
+    opacity: 0.22,
     side: THREE.DoubleSide,
     depthWrite: false,
   });
@@ -846,7 +859,7 @@ export function createLabEndingWorld(mats: MaterialLibrary): LabEndingController
   // 6. Celebration Healing Motes (InstancedMesh)
   const moteCount = 36;
   const moteGeo = new THREE.OctahedronGeometry(0.08, 0);
-  const moteMat = new THREE.MeshBasicMaterial({ color: 0x34d399 });
+  const moteMat = new THREE.MeshBasicMaterial({ color: 0x10b981 });
   disposables.push(moteGeo, moteMat);
   const celebrationMotes = new THREE.InstancedMesh(moteGeo, moteMat, moteCount);
   celebrationMotes.frustumCulled = false;
@@ -858,19 +871,41 @@ export function createLabEndingWorld(mats: MaterialLibrary): LabEndingController
     padRing.rotation.z = elapsed * 1.4;
     const beamPhase = Math.max(0, 1 - Math.max(0, endingTime - 2.6) * 0.9);
     padBeam.visible = beamPhase > 0.02;
-    (padBeam.material as THREE.MeshBasicMaterial).opacity = beamPhase * 0.32;
+    (padBeam.material as THREE.MeshBasicMaterial).opacity = beamPhase * 0.25;
     padBeam.scale.set(1 + Math.sin(elapsed * 8) * 0.05, 1, 1 + Math.sin(elapsed * 8) * 0.05);
 
-    // Animate Raka waving happily & smiling at Grandpa Aris
-    rakaRig.rightArm.rotation.z = -0.5 + Math.sin(elapsed * 5.2) * 0.35;
-    rakaRig.head.rotation.y = -0.35 + Math.sin(elapsed * 1.8) * 0.08;
-    rakaRig.head.rotation.z = Math.sin(elapsed * 2.4) * 0.06;
+    // Animate Raka happily waving & bouncing on recovery bed
+    rakaRig.rightArm.rotation.z = -0.5 + Math.sin(elapsed * 5.8) * 0.42;
+    rakaRig.head.rotation.y = -0.35 + Math.sin(elapsed * 2.1) * 0.12;
+    rakaRig.head.rotation.z = Math.sin(elapsed * 2.6) * 0.07;
+    rakaRig.root.position.y = 0.68 + Math.abs(Math.sin(elapsed * 3.2)) * 0.04;
 
-    // Animate Profesor Aris breathing & nodding warmly once back in human size
+    // Animate Profesor Aris: walks from De-Shrink Pad toward Raka's bed (3.6s..6.2s), then waves warmly!
     if (profRig.root.visible) {
-      profRig.head.rotation.x = Math.sin(elapsed * 2.1) * 0.07;
-      profRig.rightArm.rotation.x = -0.25 + Math.sin(elapsed * 2.5) * 0.12;
-      profRig.rightArm.rotation.z = 0.25 + Math.sin(elapsed * 2.2) * 0.08;
+      const walkT = THREE.MathUtils.clamp((endingTime - 3.6) / 2.4, 0, 1);
+      const smoothWalk = walkT * walkT * (3 - 2 * walkT);
+      const px = THREE.MathUtils.lerp(padPosition.x, 0.05, smoothWalk);
+      const pz = THREE.MathUtils.lerp(padPosition.z, 0.35, smoothWalk);
+      const isWalking = walkT > 0.02 && walkT < 0.98;
+      const stride = isWalking ? Math.sin(elapsed * 8.5) : 0;
+
+      profRig.root.position.set(px, isWalking ? Math.abs(stride) * 0.045 : 0, pz);
+      profShadow.position.set(px, 0.02, pz);
+
+      profRig.leftLeg.rotation.x = stride * 0.45;
+      profRig.rightLeg.rotation.x = -stride * 0.45;
+      profRig.leftArm.rotation.x = -stride * 0.38;
+
+      if (walkT >= 0.98) {
+        // Warmly waves right hand and nods happily at grandson Raka
+        profRig.rightArm.rotation.z = 2.45 + Math.sin(elapsed * 5.0) * 0.22;
+        profRig.rightArm.rotation.x = -0.25;
+      } else {
+        profRig.rightArm.rotation.z = 0.14;
+        profRig.rightArm.rotation.x = stride * 0.38;
+      }
+      profRig.head.rotation.x = Math.sin(elapsed * 2.4) * 0.08;
+      profRig.head.rotation.y = Math.sin(elapsed * 1.4) * 0.06;
     }
 
     // Floating celebratory healing motes
