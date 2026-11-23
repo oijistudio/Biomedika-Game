@@ -24,6 +24,17 @@ export interface SynapticPulse {
   mesh: THREE.Mesh;
 }
 
+export interface ForkSeptumBody {
+  pos: THREE.Vector3;
+  radius: number;
+}
+
+export interface BranchDef {
+  z: number;
+  side: -1 | 1;
+  yOffset: number;
+}
+
 export interface WorldController {
   group: THREE.Group;
   bloodCells: BloodCellBody[];
@@ -32,6 +43,7 @@ export interface WorldController {
   vitalCoreMesh: THREE.Mesh;
   anusPortalMesh: THREE.Mesh;
   zoneLights: THREE.PointLight[];
+  activeForkSepta: ForkSeptumBody[];
   update: (dt: number, elapsed: number, heartBeatPhase: number, playerZ: number) => void;
   dispose: () => void;
 }
@@ -40,20 +52,158 @@ export interface LabEndingController {
   group: THREE.Group;
   profRig: ProfessorHumanRig;
   rakaRig: RakaHumanRig;
+  profShadow: THREE.Mesh;
+  monScreen: THREE.Mesh;
   padBeam: THREE.Mesh;
   padRing: THREE.Mesh;
   celebrationMotes: THREE.InstancedMesh;
   padPosition: THREE.Vector3;
-  update: (dt: number, elapsed: number, endingTime: number) => void;
+  bedPosition: THREE.Vector3;
+  update: (
+    dt: number,
+    elapsed: number,
+    phaseTime: number,
+    mode?: 'title' | 'intro' | 'ending'
+  ) => void;
   dispose: () => void;
 }
 
+export interface ForkNodeDef {
+  z: number;
+  xOffset: number;
+}
+
+// 40 major multi-lane bifurcation septum junctions splitting wide organs into 2- and 3-lane branches
+export const FORK_NODES: readonly ForkNodeDef[] = [
+  { z: -195, xOffset: 0 },
+  { z: -265, xOffset: -4.2 },
+  { z: -265, xOffset: 4.2 },
+  { z: -345, xOffset: 0 },
+  { z: -425, xOffset: 0 },
+  { z: -535, xOffset: -4.0 },
+  { z: -535, xOffset: 4.0 },
+  { z: -630, xOffset: 0 },
+  { z: -740, xOffset: 0 },
+  { z: -850, xOffset: -3.8 },
+  { z: -850, xOffset: 3.8 },
+  { z: -990, xOffset: 0 },
+  { z: -1120, xOffset: -4.5 },
+  { z: -1120, xOffset: 4.5 },
+  { z: -1255, xOffset: 0 },
+  { z: -1360, xOffset: 0 },
+  { z: -1860, xOffset: 0 },
+  { z: -1995, xOffset: -4.4 },
+  { z: -1995, xOffset: 4.4 },
+  { z: -2145, xOffset: 0 },
+  { z: -2295, xOffset: 0 },
+  { z: -2490, xOffset: -4.2 },
+  { z: -2490, xOffset: 4.2 },
+  { z: -2655, xOffset: 0 },
+  { z: -2820, xOffset: 0 },
+  { z: -2995, xOffset: -4.4 },
+  { z: -2995, xOffset: 4.4 },
+  { z: -3220, xOffset: 0 },
+  { z: -3420, xOffset: 0 },
+  { z: -3650, xOffset: -4.5 },
+  { z: -3650, xOffset: 4.5 },
+  { z: -3890, xOffset: 0 },
+  { z: -4120, xOffset: 0 },
+  { z: -4340, xOffset: -4.5 },
+  { z: -4340, xOffset: 4.5 },
+  { z: -4590, xOffset: 0 },
+  { z: -4840, xOffset: 0 },
+  { z: -5110, xOffset: -4.4 },
+  { z: -5110, xOffset: 4.4 },
+  { z: -5390, xOffset: 0 },
+  { z: -5660, xOffset: 0 },
+  { z: -5910, xOffset: 0 },
+];
+
+export const FORK_Z_LIST: readonly number[] = Array.from(
+  new Set(FORK_NODES.map((n) => n.z))
+);
+
+// 70 anatomical side-branch ducts (including twin left+right Y-crossroads) across Zones 0..8
+export const BRANCH_LOCATIONS: readonly BranchDef[] = [
+  { z: -72, side: -1, yOffset: 0.2 },
+  { z: -102, side: 1, yOffset: -0.2 },
+  { z: -162, side: -1, yOffset: 0.4 },
+  { z: -162, side: 1, yOffset: -0.4 },
+  { z: -215, side: -1, yOffset: 0.3 },
+  { z: -245, side: 1, yOffset: -0.5 },
+  { z: -305, side: -1, yOffset: 0.2 },
+  { z: -305, side: 1, yOffset: 0.4 },
+  { z: -375, side: -1, yOffset: -0.3 },
+  { z: -410, side: 1, yOffset: 0.5 },
+  { z: -455, side: -1, yOffset: 0.3 },
+  { z: -510, side: -1, yOffset: -0.3 },
+  { z: -510, side: 1, yOffset: 0.4 },
+  { z: -580, side: 1, yOffset: 0.5 },
+  { z: -615, side: -1, yOffset: -0.4 },
+  { z: -675, side: 1, yOffset: 0.3 },
+  { z: -725, side: -1, yOffset: -0.6 },
+  { z: -790, side: 1, yOffset: 0.4 },
+  { z: -835, side: -1, yOffset: 0.2 },
+  { z: -885, side: 1, yOffset: -0.4 },
+  { z: -955, side: -1, yOffset: 0.5 },
+  { z: -955, side: 1, yOffset: -0.5 },
+  { z: -1045, side: 1, yOffset: -0.4 },
+  { z: -1105, side: -1, yOffset: 0.3 },
+  { z: -1185, side: -1, yOffset: 0.2 },
+  { z: -1245, side: 1, yOffset: -0.3 },
+  { z: -1325, side: -1, yOffset: 0.5 },
+  { z: -1325, side: 1, yOffset: -0.5 },
+  { z: -1820, side: -1, yOffset: 0.4 },
+  { z: -1885, side: 1, yOffset: -0.3 },
+  { z: -1955, side: -1, yOffset: 0.5 },
+  { z: -1955, side: 1, yOffset: -0.4 },
+  { z: -2065, side: -1, yOffset: 0.6 },
+  { z: -2140, side: 1, yOffset: -0.4 },
+  { z: -2225, side: -1, yOffset: 0.2 },
+  { z: -2315, side: 1, yOffset: -0.4 },
+  { z: -2385, side: -1, yOffset: 0.5 },
+  { z: -2465, side: -1, yOffset: 0.3 },
+  { z: -2465, side: 1, yOffset: -0.3 },
+  { z: -2575, side: 1, yOffset: -0.6 },
+  { z: -2685, side: -1, yOffset: 0.4 },
+  { z: -2785, side: 1, yOffset: -0.3 },
+  { z: -2865, side: -1, yOffset: 0.5 },
+  { z: -2965, side: 1, yOffset: -0.2 },
+  { z: -3055, side: -1, yOffset: 0.3 },
+  { z: -3175, side: -1, yOffset: 0.4 },
+  { z: -3175, side: 1, yOffset: -0.4 },
+  { z: -3310, side: 1, yOffset: -0.5 },
+  { z: -3460, side: -1, yOffset: 0.3 },
+  { z: -3580, side: 1, yOffset: 0.5 },
+  { z: -3710, side: -1, yOffset: -0.3 },
+  { z: -3850, side: -1, yOffset: 0.5 },
+  { z: -3850, side: 1, yOffset: 0.6 },
+  { z: -4010, side: -1, yOffset: -0.4 },
+  { z: -4185, side: 1, yOffset: 0.3 },
+  { z: -4310, side: -1, yOffset: 0.4 },
+  { z: -4465, side: -1, yOffset: 0.5 },
+  { z: -4465, side: 1, yOffset: -0.5 },
+  { z: -4635, side: 1, yOffset: -0.4 },
+  { z: -4795, side: -1, yOffset: 0.3 },
+  { z: -4960, side: 1, yOffset: -0.3 },
+  { z: -5085, side: -1, yOffset: 0.4 },
+  { z: -5225, side: -1, yOffset: -0.3 },
+  { z: -5225, side: 1, yOffset: -0.3 },
+  { z: -5395, side: 1, yOffset: 0.5 },
+  { z: -5520, side: -1, yOffset: 0.6 },
+  { z: -5680, side: 1, yOffset: -0.4 },
+  { z: -5790, side: -1, yOffset: 0.2 },
+  { z: -5895, side: 1, yOffset: -0.3 },
+  { z: -5980, side: -1, yOffset: 0.2 },
+  { z: -5980, side: 1, yOffset: -0.2 },
+];
+
 const CHUNK_LEN = 40;
-const CHUNK_POOL_SIZE = 8; // Covers 320 units smoothly around player
+const CHUNK_POOL_SIZE = 8;
 const CHUNK_LENGTH_SEGS = 20;
 const CHUNK_RADIAL_SEGS = 28;
 
-// Deterministic parametric centerline of the anatomical journey (z from +20 down to -2640)
+// Parametric centerline of the 6,200-unit anatomical journey (z from +20 down to -6260)
 export function getTunnelCenterAtZ(z: number, out = new THREE.Vector3()): THREE.Vector3 {
   if (z > -20) {
     return out.set(0, 0, z);
@@ -61,62 +211,83 @@ export function getTunnelCenterAtZ(z: number, out = new THREE.Vector3()): THREE.
   const negZ = -z;
   const s = negZ - 20;
 
-  // Story organs S-curves (Mouth -> Blood -> CNS -> Heart Chamber at -560..-740)
-  const heartDamp = 1.0 - THREE.MathUtils.smoothstep(negZ, 510, 575);
-  const storyX = (Math.sin(s * 0.026) * 5.6 + Math.cos(s * 0.013) * 2.5) * heartDamp;
-  const storyY = (Math.cos(s * 0.022) * 3.5 - Math.sin(s * 0.016) * 1.8) * heartDamp;
+  // Story organs S-curves (Mouth -> Bronchus -> Bloodstream -> CNS -> damping before Heart Chamber at -1420..-1780)
+  const heartDamp =
+    (1.0 - THREE.MathUtils.smoothstep(negZ, 1340, 1435)) +
+    THREE.MathUtils.smoothstep(negZ, 1755, 1840) * 0;
+  const storyActive = 1.0 - THREE.MathUtils.smoothstep(negZ, 1350, 1440);
+  const storyX = (Math.sin(s * 0.017) * 6.2 + Math.cos(s * 0.008) * 2.8) * storyActive;
+  const storyY = (Math.cos(s * 0.014) * 3.8 - Math.sin(s * 0.01) * 2.0) * storyActive;
 
-  // Endless Intestinal Corridor sweeping bends (-750..-2480), straightening at Anal Exit (-2500..-2620)
-  const gutAmp =
-    THREE.MathUtils.smoothstep(negZ, 735, 810) *
-    (1.0 - THREE.MathUtils.smoothstep(negZ, 2420, 2525));
-  const gs = Math.max(0, negZ - 735);
-  const gutX = (Math.sin(gs * 0.021) * 9.5 + Math.cos(gs * 0.009) * 4.4) * gutAmp;
-  const gutY = (Math.cos(gs * 0.018) * 6.2 - Math.sin(gs * 0.011) * 2.8) * gutAmp;
+  // Deep Abdominal & Endless Intestinal Corridor (-1780..-6040), straightening at Anal Exit (-6040..-6240)
+  const deepAmp =
+    THREE.MathUtils.smoothstep(negZ, 1760, 1875) *
+    (1.0 - THREE.MathUtils.smoothstep(negZ, 6010, 6135));
+  const ds = Math.max(0, negZ - 1760);
+  const deepX = (Math.sin(ds * 0.014) * 10.5 + Math.cos(ds * 0.0065) * 4.8) * deepAmp;
+  const deepY = (Math.cos(ds * 0.012) * 6.8 - Math.sin(ds * 0.0075) * 3.1) * deepAmp;
 
-  return out.set(storyX + gutX, storyY + gutY, z);
+  void heartDamp;
+  return out.set(storyX + deepX, storyY + deepY, z);
 }
 
-// Parametric radius at Z across all 6 zones down to Anal Exit (-2585)
+// Parametric radius at Z across all 10 zones down to Anal Exit (-6200) — super-wide cavernous body corridors!
 export function getTunnelRadiusAtZ(z: number): number {
   const negZ = -z;
-  let r = 10.6;
+  let r = 15.2;
 
-  // Narrowing at Pharynx/Throat (-85..-135)
+  // Pharynx narrowing (-90..-155)
   const throat =
-    THREE.MathUtils.smoothstep(negZ, 75, 110) * (1 - THREE.MathUtils.smoothstep(negZ, 125, 160));
-  r -= throat * 2.8;
+    THREE.MathUtils.smoothstep(negZ, 80, 115) * (1 - THREE.MathUtils.smoothstep(negZ, 135, 170));
+  r -= throat * 3.0;
 
-  // Bloodstream moderate width (-140..-330)
-  const blood =
-    THREE.MathUtils.smoothstep(negZ, 130, 175) * (1 - THREE.MathUtils.smoothstep(negZ, 305, 345));
-  r += blood * 1.2;
+  // Bronchus & Bloodstream wider conduits (-150..-920)
+  const respBlood =
+    THREE.MathUtils.smoothstep(negZ, 145, 200) * (1 - THREE.MathUtils.smoothstep(negZ, 880, 935));
+  r += respBlood * 2.4;
 
-  // CNS neural cavern (-330..-540)
+  // CNS neural cavern (-920..-1420)
   const cns =
-    THREE.MathUtils.smoothstep(negZ, 320, 365) * (1 - THREE.MathUtils.smoothstep(negZ, 515, 555));
-  r += cns * 2.4;
+    THREE.MathUtils.smoothstep(negZ, 910, 960) * (1 - THREE.MathUtils.smoothstep(negZ, 1385, 1430));
+  r += cns * 3.8;
 
-  // Monumental Heart Chamber expansion (-550..-740)
+  // Monumental Heart Chamber expansion (-1420..-1780)
   const heart =
-    THREE.MathUtils.smoothstep(negZ, 540, 595) * (1 - THREE.MathUtils.smoothstep(negZ, 710, 775));
-  r += heart * 11.2;
+    THREE.MathUtils.smoothstep(negZ, 1410, 1475) *
+    (1 - THREE.MathUtils.smoothstep(negZ, 1735, 1805));
+  r += heart * 14.2;
 
-  // Endless Intestinal Corridor haustral rhythmic ridges (-760..-2480)
+  // Liver & Kidney sinusoidal corridors (-1780..-3120)
+  const hepatoRenal =
+    THREE.MathUtils.smoothstep(negZ, 1785, 1860) *
+    (1 - THREE.MathUtils.smoothstep(negZ, 3070, 3140));
+  r += hepatoRenal * (3.4 + Math.sin(negZ * 0.06) * 1.4);
+
+  // Endless Small Intestine & Colon haustral ridges (-3120..-6040)
   const gutFactor =
-    THREE.MathUtils.smoothstep(negZ, 755, 815) * (1 - THREE.MathUtils.smoothstep(negZ, 2450, 2515));
-  const haustra = Math.sin(negZ * 0.13) * 1.15 - 0.8;
+    THREE.MathUtils.smoothstep(negZ, 3110, 3190) *
+    (1 - THREE.MathUtils.smoothstep(negZ, 5990, 6080));
+  const haustra = Math.sin(negZ * 0.11) * 1.45 - 0.35;
   r += gutFactor * haustra;
 
-  // Anal Sphincter pinch near -2585, opening outward right past it
+  // Extra-wide bifurcation chambers around each multi-lane junction
+  for (let i = 0; i < FORK_Z_LIST.length; i++) {
+    const dz = Math.abs(z - FORK_Z_LIST[i]);
+    if (dz < 34) {
+      r += 5.4 * (1 - THREE.MathUtils.smoothstep(dz, 10, 34));
+    }
+  }
+
+  // Anal Sphincter pinch near -6200, flaring open past -6200
   const sphincterPinch =
-    THREE.MathUtils.smoothstep(negZ, 2510, 2575) * (1 - THREE.MathUtils.smoothstep(negZ, 2585, 2615));
-  r -= sphincterPinch * 3.4;
+    THREE.MathUtils.smoothstep(negZ, 6115, 6190) *
+    (1 - THREE.MathUtils.smoothstep(negZ, 6200, 6235));
+  r -= sphincterPinch * 3.8;
 
-  const postExitFlare = THREE.MathUtils.smoothstep(negZ, 2585, 2630);
-  r += postExitFlare * 4.5;
+  const postExitFlare = THREE.MathUtils.smoothstep(negZ, 6200, 6245);
+  r += postExitFlare * 5.8;
 
-  return Math.max(4.5, r);
+  return Math.max(6.2, r);
 }
 
 interface TunnelChunk {
@@ -211,7 +382,7 @@ export function createAnatomicalWorld(mats: MaterialLibrary): WorldController {
   const group = new THREE.Group();
   const disposables: { dispose: () => void }[] = [];
 
-  // 1. Streaming Chunked Anatomical Tunnel (supports 2,600+ units smoothly at 60fps)
+  // 1. Streaming Chunked Anatomical Tunnel (covers full 6,260-unit journey smoothly at 60fps)
   const chunks: TunnelChunk[] = [];
   for (let i = 0; i < CHUNK_POOL_SIZE; i++) {
     const geo = createTunnelChunkGeometry();
@@ -224,6 +395,65 @@ export function createAnatomicalWorld(mats: MaterialLibrary): WorldController {
     chunks.push(chunk);
   }
 
+  // 1B. Pooled Multi-Lane Bifurcation Septum Pillars (2-lane & 3-lane corridors)
+  const FORK_POOL_SIZE = 7;
+  const forkGeo = new THREE.CylinderGeometry(2.15, 2.65, 42, 16);
+  const forkRingGeo = new THREE.TorusGeometry(2.75, 0.28, 8, 22);
+  forkRingGeo.rotateX(Math.PI / 2);
+  const forkRingMat = new THREE.MeshBasicMaterial({
+    color: 0xf43f5e,
+    transparent: true,
+    opacity: 0.42,
+  });
+  disposables.push(forkGeo, forkRingGeo, forkRingMat);
+
+  const forkMeshes: THREE.Group[] = [];
+  const activeForkSepta: ForkSeptumBody[] = [];
+  for (let i = 0; i < FORK_POOL_SIZE; i++) {
+    const fg = new THREE.Group();
+    const pillar = new THREE.Mesh(forkGeo, mats.heartValve);
+    pillar.castShadow = true;
+    pillar.receiveShadow = true;
+    const ring = new THREE.Mesh(forkRingGeo, forkRingMat);
+    fg.add(pillar, ring);
+    fg.visible = false;
+    group.add(fg);
+    forkMeshes.push(fg);
+    activeForkSepta.push({ pos: new THREE.Vector3(0, 0, 9999), radius: 2.5 });
+  }
+
+  // 1C. Pooled Large 3D Side-Branch Ducts (Lorong Cabang Kiri & Kanan)
+  const BRANCH_POOL_SIZE = 14;
+  const branchTubeGeo = new THREE.CylinderGeometry(5.8, 7.0, 32, 18, 1, true);
+  branchTubeGeo.rotateZ(Math.PI / 2);
+  const branchMat = mats.mucosaWall.clone();
+  branchMat.side = THREE.DoubleSide;
+  const branchRimGeo = new THREE.TorusGeometry(6.6, 0.48, 10, 24);
+  branchRimGeo.rotateY(Math.PI / 2);
+  const branchGlowGeo = new THREE.CircleGeometry(5.6, 20);
+  branchGlowGeo.rotateY(Math.PI / 2);
+  const branchGlowMat = new THREE.MeshBasicMaterial({
+    color: 0x0f172a,
+    transparent: true,
+    opacity: 0.85,
+    side: THREE.DoubleSide,
+  });
+  disposables.push(branchTubeGeo, branchMat, branchRimGeo, branchGlowGeo, branchGlowMat);
+
+  const branchMeshes: THREE.Group[] = [];
+  for (let i = 0; i < BRANCH_POOL_SIZE; i++) {
+    const bg = new THREE.Group();
+    const tube = new THREE.Mesh(branchTubeGeo, branchMat);
+    const rim = new THREE.Mesh(branchRimGeo, mats.heartValve);
+    rim.position.x = -15.2;
+    const voidDisk = new THREE.Mesh(branchGlowGeo, branchGlowMat);
+    voidDisk.position.x = 15.4;
+    bg.add(tube, rim, voidDisk);
+    bg.visible = false;
+    group.add(bg);
+    branchMeshes.push(bg);
+  }
+
   // 2. ZONA 1: RONGGA MULUT (Teeth Arches & Uvula)
   const mouthGroup = new THREE.Group();
   group.add(mouthGroup);
@@ -233,13 +463,13 @@ export function createAnatomicalWorld(mats: MaterialLibrary): WorldController {
   disposables.push(toothCrownGeo);
 
   const centerTmp = new THREE.Vector3();
-  for (let row = 0; row < 12; row++) {
+  for (let row = 0; row < 14; row++) {
     const z = 4 - row * 5.2;
     getTunnelCenterAtZ(z, centerTmp);
     const rad = getTunnelRadiusAtZ(z) - 0.8;
 
     for (const side of [-1, 1]) {
-      const angUpper = Math.PI * 0.5 + side * (0.42 + row * 0.025);
+      const angUpper = Math.PI * 0.5 + side * (0.42 + row * 0.024);
       const upperTooth = new THREE.Mesh(toothCrownGeo, mats.toothEnamel);
       upperTooth.position.set(
         centerTmp.x + Math.cos(angUpper) * rad,
@@ -267,17 +497,17 @@ export function createAnatomicalWorld(mats: MaterialLibrary): WorldController {
     }
   }
 
-  getTunnelCenterAtZ(-82, centerTmp);
+  getTunnelCenterAtZ(-84, centerTmp);
   const uvulaGeo = new THREE.ConeGeometry(1.4, 4.4, 16);
   uvulaGeo.rotateX(Math.PI);
   disposables.push(uvulaGeo);
   const uvulaMat = mats.heartValve.clone();
   disposables.push(uvulaMat);
   const uvula = new THREE.Mesh(uvulaGeo, uvulaMat);
-  uvula.position.set(centerTmp.x, centerTmp.y + 4.8, -82);
+  uvula.position.set(centerTmp.x, centerTmp.y + 4.8, -84);
   mouthGroup.add(uvula);
 
-  // 3. ZONA 2: TRAKEA CARTILAGE RINGS & INSTANCED RED BLOOD CELLS
+  // 3. ZONA 2: ESOFAGUS & CABANG BRONKUS CARTILAGE RINGS
   const tracheaGroup = new THREE.Group();
   group.add(tracheaGroup);
 
@@ -287,19 +517,19 @@ export function createAnatomicalWorld(mats: MaterialLibrary): WorldController {
     roughness: 0.3,
     clearcoat: 0.8,
     transparent: true,
-    opacity: 0.65,
+    opacity: 0.62,
   });
   disposables.push(ringGeo, ringMat);
-  for (let z = -115; z >= -205; z -= 10) {
+  for (let z = -150; z >= -450; z -= 14) {
     getTunnelCenterAtZ(z, centerTmp);
     const cRing = new THREE.Mesh(ringGeo, ringMat);
-    const scale = getTunnelRadiusAtZ(z) / 8.6;
+    const scale = getTunnelRadiusAtZ(z) / 8.8;
     cRing.scale.setScalar(scale);
     cRing.position.copy(centerTmp);
     tracheaGroup.add(cRing);
   }
 
-  // Instanced Red Blood Cells (140 physics bodies that stream cleanly around player)
+  // Instanced Red Blood Cells (140 physics bodies streaming through vessels & deep organs)
   const cellCount = 140;
   const cellGeo = createBiconcaveCellGeometry();
   disposables.push(cellGeo);
@@ -313,7 +543,7 @@ export function createAnatomicalWorld(mats: MaterialLibrary): WorldController {
   const cColor = new THREE.Color();
 
   for (let i = 0; i < cellCount; i++) {
-    const z = THREE.MathUtils.lerp(-130, -330, Math.random());
+    const z = THREE.MathUtils.lerp(-480, -920, Math.random());
     getTunnelCenterAtZ(z, centerTmp);
     const maxR = getTunnelRadiusAtZ(z) * 0.72;
     const angle = Math.random() * Math.PI * 2;
@@ -328,9 +558,17 @@ export function createAnatomicalWorld(mats: MaterialLibrary): WorldController {
     const rot = new THREE.Euler(Math.random() * 6, Math.random() * 6, Math.random() * 6);
     bloodCells.push({
       pos,
-      vel: new THREE.Vector3((Math.random() - 0.5) * 1.2, (Math.random() - 0.5) * 1.2, -3.8 - Math.random() * 2.5),
+      vel: new THREE.Vector3(
+        (Math.random() - 0.5) * 1.2,
+        (Math.random() - 0.5) * 1.2,
+        -4.0 - Math.random() * 2.5
+      ),
       rot,
-      angVel: new THREE.Vector3((Math.random() - 0.5) * 1.6, (Math.random() - 0.5) * 1.6, (Math.random() - 0.5) * 1.6),
+      angVel: new THREE.Vector3(
+        (Math.random() - 0.5) * 1.6,
+        (Math.random() - 0.5) * 1.6,
+        (Math.random() - 0.5) * 1.6
+      ),
       scale,
       radius: 0.8 * scale,
     });
@@ -349,16 +587,16 @@ export function createAnatomicalWorld(mats: MaterialLibrary): WorldController {
   bloodInstanced.computeBoundingSphere();
   group.add(bloodInstanced);
 
-  // 4. ZONA 3: SISTEM SARAF PUSAT (Branching Myelin Axons & Synaptic Pulses)
+  // 4. ZONA 4: SISTEM SARAF PUSAT (Branching Myelin Axons & Synaptic Pulses at z = -930 .. -1395)
   const cnsGroup = new THREE.Group();
   group.add(cnsGroup);
   const synapticPulses: SynapticPulse[] = [];
-  const pulseGeo = new THREE.SphereGeometry(0.3, 10, 10);
+  const pulseGeo = new THREE.SphereGeometry(0.32, 10, 10);
   const pulseMat = new THREE.MeshBasicMaterial({ color: 0x67e8f9 });
   disposables.push(pulseGeo, pulseMat);
 
-  for (let n = 0; n < 30; n++) {
-    const zBase = -335 - n * 6.5;
+  for (let n = 0; n < 38; n++) {
+    const zBase = -930 - n * 12;
     getTunnelCenterAtZ(zBase, centerTmp);
     const rad = getTunnelRadiusAtZ(zBase);
     const ang = (n * 1.37) % (Math.PI * 2);
@@ -368,18 +606,18 @@ export function createAnatomicalWorld(mats: MaterialLibrary): WorldController {
       zBase
     );
     const p2 = new THREE.Vector3(
-      centerTmp.x + Math.cos(ang + 0.45) * (rad * 0.65),
-      centerTmp.y + Math.sin(ang + 0.45) * (rad * 0.65),
-      zBase - 5.5
+      centerTmp.x + Math.cos(ang + 0.48) * (rad * 0.65),
+      centerTmp.y + Math.sin(ang + 0.48) * (rad * 0.65),
+      zBase - 9
     );
     const p3 = new THREE.Vector3(
-      centerTmp.x + Math.cos(ang + 0.95) * (rad * 0.88),
-      centerTmp.y + Math.sin(ang + 0.95) * (rad * 0.88),
-      zBase - 11.5
+      centerTmp.x + Math.cos(ang + 0.96) * (rad * 0.88),
+      centerTmp.y + Math.sin(ang + 0.96) * (rad * 0.88),
+      zBase - 18
     );
 
     const curve = new THREE.CatmullRomCurve3([p1, p2, p3]);
-    const axonGeo = new THREE.TubeGeometry(curve, 14, 0.18, 8, false);
+    const axonGeo = new THREE.TubeGeometry(curve, 14, 0.2, 8, false);
     disposables.push(axonGeo);
     const axonMesh = new THREE.Mesh(axonGeo, mats.myelinSheath);
     cnsGroup.add(axonMesh);
@@ -394,7 +632,7 @@ export function createAnatomicalWorld(mats: MaterialLibrary): WorldController {
     });
   }
 
-  // 5. ZONA 4: RUANG JANTUNG & ORGAN VITAL (z = -540 .. -760)
+  // 5. ZONA 5: RUANG JANTUNG & ORGAN VITAL (z = -1420 .. -1780)
   const heartGroup = new THREE.Group();
   group.add(heartGroup);
 
@@ -412,23 +650,22 @@ export function createAnatomicalWorld(mats: MaterialLibrary): WorldController {
   });
   disposables.push(valveGeo);
 
-  getTunnelCenterAtZ(-560, centerTmp);
+  getTunnelCenterAtZ(-1465, centerTmp);
   for (let v = 0; v < 4; v++) {
     const ang = (v / 4) * Math.PI * 2;
     const valve = new THREE.Mesh(valveGeo, mats.heartValve);
     valve.position.set(
       centerTmp.x + Math.cos(ang) * 11.5,
       centerTmp.y + Math.sin(ang) * 11.5,
-      -560
+      -1465
     );
     valve.rotation.z = ang + Math.PI;
     heartGroup.add(valve);
     heartValves.push(valve);
   }
 
-  // Vital Sinoatrial Core in Cardiac Chamber
-  getTunnelCenterAtZ(-728, centerTmp);
-  const coreGeo = new THREE.SphereGeometry(4.2, 24, 24);
+  getTunnelCenterAtZ(-1725, centerTmp);
+  const coreGeo = new THREE.SphereGeometry(4.4, 24, 24);
   const coreMat = new THREE.MeshPhysicalMaterial({
     color: 0xfb7185,
     emissive: 0xe11d48,
@@ -438,12 +675,12 @@ export function createAnatomicalWorld(mats: MaterialLibrary): WorldController {
   });
   disposables.push(coreGeo, coreMat);
   const vitalCoreMesh = new THREE.Mesh(coreGeo, coreMat);
-  vitalCoreMesh.position.set(centerTmp.x, centerTmp.y + 5.2, -728);
+  vitalCoreMesh.position.set(centerTmp.x, centerTmp.y + 5.2, -1725);
   heartGroup.add(vitalCoreMesh);
 
-  // 6. ZONA 5: ENDLESS INTESTINAL VILLI RINGS (InstancedMesh sliding with player)
+  // 6. ZONA 8-9: USUS HALUS & KOLON HAUSTRAL VILLI RINGS (InstancedMesh sliding with player)
   const villiRingCount = 26;
-  const villiRingGeo = new THREE.TorusGeometry(8.6, 0.55, 10, 26);
+  const villiRingGeo = new THREE.TorusGeometry(8.8, 0.56, 10, 26);
   const villiRingMat = new THREE.MeshPhysicalMaterial({
     color: 0xfb923c,
     emissive: 0x7c2d12,
@@ -458,7 +695,7 @@ export function createAnatomicalWorld(mats: MaterialLibrary): WorldController {
   villiInstanced.frustumCulled = false;
   group.add(villiInstanced);
 
-  // 7. ZONA 6: ANAL SPHINCTER EXIT GATE & RADIANT LAB PORTAL (z = -2585)
+  // 7. ZONA 10: ANAL SPHINCTER EXIT GATE & RADIANT LAB PORTAL (z = -6200)
   const exitGroup = new THREE.Group();
   group.add(exitGroup);
   getTunnelCenterAtZ(ANUS_EXIT_Z, centerTmp);
@@ -487,17 +724,16 @@ export function createAnatomicalWorld(mats: MaterialLibrary): WorldController {
     sphincterPetals.push({ mesh: petal, angle });
   }
 
-  // Radiant External World Light Portal right past the sphincter
-  const portalGeo = new THREE.CircleGeometry(12.5, 32);
+  const portalGeo = new THREE.CircleGeometry(12.8, 32);
   disposables.push(portalGeo);
   const anusPortalMesh = new THREE.Mesh(portalGeo, mats.portalGlow);
   anusPortalMesh.position.set(centerTmp.x, centerTmp.y, ANUS_EXIT_Z - 14);
   exitGroup.add(anusPortalMesh);
 
-  // 8. Travelling Atmospheric Tunnel PointLights (follow player & illuminate curves)
+  // 8. Travelling Atmospheric Tunnel PointLights
   const zoneLights: THREE.PointLight[] = [];
   for (let i = 0; i < 4; i++) {
-    const pt = new THREE.PointLight(0xffb3c6, 28, 85, 1.2);
+    const pt = new THREE.PointLight(0xffb3c6, 28, 92, 1.2);
     group.add(pt);
     zoneLights.push(pt);
   }
@@ -520,18 +756,59 @@ export function createAnatomicalWorld(mats: MaterialLibrary): WorldController {
       }
     }
 
-    // Toggle far-away static organ landmark groups for speed
-    mouthGroup.visible = playerZ > -220;
-    tracheaGroup.visible = playerZ < -30 && playerZ > -360;
-    cnsGroup.visible = playerZ < -220 && playerZ > -680;
-    heartGroup.visible = playerZ < -420 && playerZ > -920;
-    exitGroup.visible = playerZ < -2340;
-    villiInstanced.visible = playerZ < -720 && playerZ > -2560;
+    // 1B. Assign ForkSeptum pillars to the closest multi-lane bifurcations near playerZ
+    let forkSlot = 0;
+    for (let i = 0; i < FORK_NODES.length && forkSlot < FORK_POOL_SIZE; i++) {
+      const fn = FORK_NODES[i];
+      if (fn.z < playerZ + 55 && fn.z > playerZ - 210) {
+        getTunnelCenterAtZ(fn.z, cTmp);
+        const fg = forkMeshes[forkSlot];
+        fg.visible = true;
+        fg.position.set(cTmp.x + fn.xOffset, cTmp.y, fn.z);
+        fg.rotation.z = Math.sin(elapsed * 0.8 + i) * 0.04;
+        activeForkSepta[forkSlot].pos.set(cTmp.x + fn.xOffset, cTmp.y, fn.z);
+        forkSlot++;
+      }
+    }
+    for (let s = forkSlot; s < FORK_POOL_SIZE; s++) {
+      forkMeshes[s].visible = false;
+      activeForkSepta[s].pos.set(0, 0, 9999);
+    }
 
-    // 2. Wrap Red Blood Cells dynamically around player in Bloodstream & Endless corridor
-    const rbcMinZ = playerZ - 135;
-    const rbcMaxZ = playerZ + 38;
-    const showRbc = playerZ < -85 && playerZ > -2560;
+    // 1C. Assign Side-Branch tubular ducts to nearest BRANCH_LOCATIONS around playerZ
+    let branchSlot = 0;
+    for (let i = 0; i < BRANCH_LOCATIONS.length && branchSlot < BRANCH_POOL_SIZE; i++) {
+      const b = BRANCH_LOCATIONS[i];
+      if (b.z < playerZ + 55 && b.z > playerZ - 220) {
+        getTunnelCenterAtZ(b.z, cTmp);
+        const rad = getTunnelRadiusAtZ(b.z);
+        const bg = branchMeshes[branchSlot];
+        bg.visible = true;
+        bg.position.set(
+          cTmp.x + b.side * (rad + 9.2),
+          cTmp.y + b.yOffset * 2.5,
+          b.z
+        );
+        bg.rotation.set(0, b.side > 0 ? 0.52 : Math.PI - 0.52, b.side * 0.14);
+        branchSlot++;
+      }
+    }
+    for (let s = branchSlot; s < BRANCH_POOL_SIZE; s++) {
+      branchMeshes[s].visible = false;
+    }
+
+    // Toggle far-away static organ landmark groups for speed
+    mouthGroup.visible = playerZ > -230;
+    tracheaGroup.visible = playerZ < -60 && playerZ > -520;
+    cnsGroup.visible = playerZ < -820 && playerZ > -1540;
+    heartGroup.visible = playerZ < -1260 && playerZ > -1920;
+    exitGroup.visible = playerZ < -5920;
+    villiInstanced.visible = playerZ < -3040 && playerZ > -6120;
+
+    // 2. Wrap Red Blood Cells dynamically around player in Bloodstream & deep organs
+    const rbcMinZ = playerZ - 140;
+    const rbcMaxZ = playerZ + 40;
+    const showRbc = playerZ < -420 && playerZ > -6140;
     bloodInstanced.visible = showRbc;
 
     if (showRbc) {
@@ -552,7 +829,11 @@ export function createAnatomicalWorld(mats: MaterialLibrary): WorldController {
           const a = Math.random() * Math.PI * 2;
           cell.pos.x = cTmp.x + Math.cos(a) * r;
           cell.pos.y = cTmp.y + Math.sin(a) * r;
-          cell.vel.set((Math.random() - 0.5) * 1.2, (Math.random() - 0.5) * 1.2, -4.5 - Math.random() * 2.5);
+          cell.vel.set(
+            (Math.random() - 0.5) * 1.2,
+            (Math.random() - 0.5) * 1.2,
+            -4.5 - Math.random() * 2.5
+          );
         }
 
         getTunnelCenterAtZ(cell.pos.z, cTmp);
@@ -603,18 +884,22 @@ export function createAnatomicalWorld(mats: MaterialLibrary): WorldController {
       }
     }
 
-    // 5. Endless Intestinal Haustral Rings sliding along Z
+    // 5. Long Digestive Haustral Villi Rings sliding along Z (-3120..-6040)
     if (villiInstanced.visible) {
-      const startRingIdx = Math.floor(Math.max(760, -playerZ - 25) / 14);
+      const startRingIdx = Math.floor(Math.max(3120, -playerZ - 28) / 14);
       for (let i = 0; i < villiRingCount; i++) {
         const ringZ = -(startRingIdx + i) * 14;
-        if (ringZ < -2475) {
+        if (ringZ < -6035) {
           dummyObj.scale.setScalar(0.001);
         } else {
           getTunnelCenterAtZ(ringZ, cTmp);
-          const rad = getTunnelRadiusAtZ(ringZ) / 8.8;
+          const rad = getTunnelRadiusAtZ(ringZ) / 9.0;
           dummyObj.position.copy(cTmp);
-          dummyObj.rotation.set(Math.sin(ringZ * 0.05) * 0.08, Math.cos(ringZ * 0.04) * 0.08, elapsed * 0.25 + i);
+          dummyObj.rotation.set(
+            Math.sin(ringZ * 0.05) * 0.08,
+            Math.cos(ringZ * 0.04) * 0.08,
+            elapsed * 0.25 + i
+          );
           dummyObj.scale.setScalar(rad);
         }
         dummyObj.updateMatrix();
@@ -623,11 +908,11 @@ export function createAnatomicalWorld(mats: MaterialLibrary): WorldController {
       villiInstanced.instanceMatrix.needsUpdate = true;
     }
 
-    // 6. Animate Anal Sphincter Gate dilating open as player nears exit
+    // 6. Animate Anal Sphincter Gate dilating open near -6200
     if (exitGroup.visible) {
       getTunnelCenterAtZ(ANUS_EXIT_Z, cTmp);
-      const openFactor = THREE.MathUtils.smoothstep(-playerZ, 2450, 2555);
-      const petalRadius = 4.0 + openFactor * 4.4;
+      const openFactor = THREE.MathUtils.smoothstep(-playerZ, 6060, 6170);
+      const petalRadius = 4.0 + openFactor * 4.5;
       for (let p = 0; p < sphincterPetals.length; p++) {
         const sp = sphincterPetals[p];
         sp.mesh.position.set(
@@ -639,13 +924,16 @@ export function createAnatomicalWorld(mats: MaterialLibrary): WorldController {
       anusPortalMesh.scale.setScalar(0.85 + openFactor * 0.45 + Math.sin(elapsed * 4) * 0.05);
     }
 
-    // 7. Reposition 4 traveling PointLights along tunnel ahead/around player
+    // 7. Reposition 4 traveling PointLights across 10 zones
     const negZ = -playerZ;
-    if (negZ < 130) lightColor.setHex(0xffb3c6);
-    else if (negZ < 330) lightColor.setHex(0xef4444);
-    else if (negZ < 540) lightColor.setHex(0x38bdf8);
-    else if (negZ < 760) lightColor.setHex(0xf43f5e);
-    else if (negZ < 2480) lightColor.setHex(0xfb923c);
+    if (negZ < 140) lightColor.setHex(0xffb3c6);
+    else if (negZ < 480) lightColor.setHex(0xfda4af);
+    else if (negZ < 920) lightColor.setHex(0xef4444);
+    else if (negZ < 1420) lightColor.setHex(0x38bdf8);
+    else if (negZ < 1780) lightColor.setHex(0xf43f5e);
+    else if (negZ < 2420) lightColor.setHex(0xfbbf24);
+    else if (negZ < 3120) lightColor.setHex(0x34d399);
+    else if (negZ < 6040) lightColor.setHex(0xfb923c);
     else lightColor.setHex(0xfef08a);
 
     for (let i = 0; i < zoneLights.length; i++) {
@@ -653,7 +941,8 @@ export function createAnatomicalWorld(mats: MaterialLibrary): WorldController {
       getTunnelCenterAtZ(lz, cTmp);
       zoneLights[i].position.copy(cTmp);
       zoneLights[i].color.copy(lightColor);
-      zoneLights[i].intensity = i === 1 && negZ >= 540 && negZ < 760 ? 36 + (beatScale - 1) * 130 : 28;
+      zoneLights[i].intensity =
+        i === 1 && negZ >= 1420 && negZ < 1780 ? 36 + (beatScale - 1) * 130 : 28;
     }
   };
 
@@ -665,6 +954,7 @@ export function createAnatomicalWorld(mats: MaterialLibrary): WorldController {
     vitalCoreMesh,
     anusPortalMesh,
     zoneLights,
+    activeForkSepta,
     update,
     dispose: () => {
       disposables.forEach((d) => d.dispose());
@@ -713,7 +1003,7 @@ export function createLabEndingWorld(mats: MaterialLibrary): LabEndingController
   leftWall.rotation.y = Math.PI / 2;
   group.add(leftWall);
 
-  // Sky-Blue Laboratory Window with Mullions on Back Wall (non-glaring sky tone)
+  // Sky-Blue Laboratory Window with Mullions on Back Wall
   const windowFrameGeo = new THREE.BoxGeometry(5.6, 3.2, 0.14);
   const windowPaneGeo = new THREE.PlaneGeometry(5.2, 2.8);
   const windowMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
@@ -721,7 +1011,15 @@ export function createLabEndingWorld(mats: MaterialLibrary): LabEndingController
   const trimMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.7 });
   const mullionVGeo = new THREE.BoxGeometry(0.12, 2.8, 0.08);
   const mullionHGeo = new THREE.BoxGeometry(5.2, 0.12, 0.08);
-  disposables.push(windowFrameGeo, windowPaneGeo, windowMat, trimGeo, trimMat, mullionVGeo, mullionHGeo);
+  disposables.push(
+    windowFrameGeo,
+    windowPaneGeo,
+    windowMat,
+    trimGeo,
+    trimMat,
+    mullionVGeo,
+    mullionHGeo
+  );
 
   const wainscotBack = new THREE.Mesh(trimGeo, trimMat);
   wainscotBack.position.set(0, 0.68, -5.45);
@@ -737,7 +1035,7 @@ export function createLabEndingWorld(mats: MaterialLibrary): LabEndingController
   mulH.position.set(-2.2, 3.2, -5.3);
   group.add(winFrame, winPane, mulV, mulH);
 
-  // 2. Bio-Expansion / De-Shrink Pad (left-center at x = -2.2, z = 0.2)
+  // 2. Bio-Shrink / Re-Expansion Pad (x = -2.2, z = 0.2)
   const padPosition = new THREE.Vector3(-2.2, 0, 0.2);
   const padGroup = new THREE.Group();
   padGroup.position.copy(padPosition);
@@ -769,7 +1067,7 @@ export function createLabEndingWorld(mats: MaterialLibrary): LabEndingController
   padGroup.add(padBeam);
   disposables.push(padBaseGeo, padRingGeo, padRingMat, beamGeo, beamMat);
 
-  // 3. Stainless Steel Lab Desk + Healthy Bio-Monitor Display (back-right)
+  // 3. Stainless Steel Lab Desk + Vital Bio-Monitor
   const deskGroup = new THREE.Group();
   deskGroup.position.set(2.4, 0, -3.9);
   group.add(deskGroup);
@@ -787,7 +1085,6 @@ export function createLabEndingWorld(mats: MaterialLibrary): LabEndingController
   dLegR.position.x = 1.5;
   deskGroup.add(dLegL, dLegR);
 
-  // Vital Monitor showing "RAKA · STATUS: SEHAT 100%"
   const monBodyGeo = new THREE.BoxGeometry(2.1, 1.15, 0.14);
   const monStandGeo = new THREE.CylinderGeometry(0.12, 0.22, 0.35, 12);
   const monScreenGeo = new THREE.PlaneGeometry(1.92, 0.96);
@@ -795,15 +1092,16 @@ export function createLabEndingWorld(mats: MaterialLibrary): LabEndingController
   monStand.position.set(0, 1.25, 0);
   const monBody = new THREE.Mesh(monBodyGeo, mats.darkChassis);
   monBody.position.set(0, 1.92, 0);
-  const monScreen = new THREE.Mesh(monScreenGeo, mats.labMonitorScreen);
+  const monScreen = new THREE.Mesh(monScreenGeo, mats.labMonitorSickScreen);
   monScreen.position.set(0, 1.92, 0.08);
   deskGroup.add(monStand, monBody, monScreen);
   disposables.push(deskTopGeo, deskLegGeo, monBodyGeo, monStandGeo, monScreenGeo);
 
   // 4. Pediatric Recovery Bed (right at x = 2.4, z = -0.1)
+  const bedPosition = new THREE.Vector3(2.4, 0, -0.1);
   const bedGroup = new THREE.Group();
-  bedGroup.position.set(2.4, 0, -0.1);
-  bedGroup.rotation.y = -0.35; // Angled warmly toward Profesor Aris
+  bedGroup.position.copy(bedPosition);
+  bedGroup.rotation.y = -0.35;
   group.add(bedGroup);
 
   const bedFrameGeo = new THREE.BoxGeometry(1.65, 0.38, 2.5);
@@ -827,10 +1125,10 @@ export function createLabEndingWorld(mats: MaterialLibrary): LabEndingController
   blanket.position.set(0, 0.64, 0.48);
   bedGroup.add(bedFrame, mattress, headboard, pillow, blanket);
 
-  // 5. Full-Size Profesor Aris & Healthy Grandchild Raka
+  // 5. Full-Size Profesor Aris & Grandchild Raka
   const profRig = createProfessorHumanModel(mats);
   profRig.root.position.copy(padPosition);
-  profRig.root.rotation.y = Math.PI * 0.44; // Facing Raka on the right
+  profRig.root.rotation.y = Math.PI * 0.44;
   profRig.root.visible = false;
   group.add(profRig.root);
 
@@ -856,7 +1154,7 @@ export function createLabEndingWorld(mats: MaterialLibrary): LabEndingController
   bedShadow.scale.set(1.6, 1, 1.9);
   group.add(profShadow, bedShadow);
 
-  // 6. Celebration Healing Motes (InstancedMesh)
+  // 6. Bio-Particles / Celebration Motes (InstancedMesh)
   const moteCount = 36;
   const moteGeo = new THREE.OctahedronGeometry(0.08, 0);
   const moteMat = new THREE.MeshBasicMaterial({ color: 0x10b981 });
@@ -867,48 +1165,155 @@ export function createLabEndingWorld(mats: MaterialLibrary): LabEndingController
 
   const moteDummy = new THREE.Object3D();
 
-  const update = (_dt: number, elapsed: number, endingTime: number) => {
+  const update = (
+    _dt: number,
+    elapsed: number,
+    phaseTime: number,
+    mode: 'title' | 'intro' | 'ending' = 'ending'
+  ) => {
     padRing.rotation.z = elapsed * 1.4;
-    const beamPhase = Math.max(0, 1 - Math.max(0, endingTime - 2.6) * 0.9);
-    padBeam.visible = beamPhase > 0.02;
-    (padBeam.material as THREE.MeshBasicMaterial).opacity = beamPhase * 0.25;
-    padBeam.scale.set(1 + Math.sin(elapsed * 8) * 0.05, 1, 1 + Math.sin(elapsed * 8) * 0.05);
 
-    // Animate Raka happily waving & bouncing on recovery bed
-    rakaRig.rightArm.rotation.z = -0.5 + Math.sin(elapsed * 5.8) * 0.42;
-    rakaRig.head.rotation.y = -0.35 + Math.sin(elapsed * 2.1) * 0.12;
-    rakaRig.head.rotation.z = Math.sin(elapsed * 2.6) * 0.07;
-    rakaRig.root.position.y = 0.68 + Math.abs(Math.sin(elapsed * 3.2)) * 0.04;
+    if (mode === 'title') {
+      // Title Menu Showcase: Raka resting sick on bed, Pod waiting on Shrink Pad, Professor inspecting nearby
+      monScreen.material = mats.labMonitorSickScreen;
+      (padBeam.material as THREE.MeshBasicMaterial).color.setHex(0x0ea5e9);
+      (padBeam.material as THREE.MeshBasicMaterial).opacity = 0.18 + Math.sin(elapsed * 3.0) * 0.05;
+      padBeam.visible = true;
+      padBeam.scale.setScalar(1.0);
 
-    // Animate Profesor Aris: walks from De-Shrink Pad toward Raka's bed (3.6s..6.2s), then waves warmly!
-    if (profRig.root.visible) {
-      const walkT = THREE.MathUtils.clamp((endingTime - 3.6) / 2.4, 0, 1);
-      const smoothWalk = walkT * walkT * (3 - 2 * walkT);
-      const px = THREE.MathUtils.lerp(padPosition.x, 0.05, smoothWalk);
-      const pz = THREE.MathUtils.lerp(padPosition.z, 0.35, smoothWalk);
-      const isWalking = walkT > 0.02 && walkT < 0.98;
-      const stride = isWalking ? Math.sin(elapsed * 8.5) : 0;
+      // Raka reclined sick resting on bed
+      rakaRig.root.position.set(0, 0.72 + Math.sin(elapsed * 2.2) * 0.015, -0.15);
+      rakaRig.root.rotation.x = 1.24; // Lying down toward pillow (-Z head when reclined back -> +1.24 tilts torso back onto bed)
+      rakaRig.root.rotation.x = -1.24; // Tilts head back onto pillow (-Z)
+      rakaRig.rightArm.rotation.z = -0.12;
+      rakaRig.head.rotation.y = Math.sin(elapsed * 0.9) * 0.08;
+      rakaRig.head.rotation.z = Math.sin(elapsed * 5.0) * 0.03;
 
-      profRig.root.position.set(px, isWalking ? Math.abs(stride) * 0.045 : 0, pz);
-      profShadow.position.set(px, 0.02, pz);
+      // Profesor standing calmly beside Shrink Pad looking toward Pad / Pod
+      profRig.root.visible = true;
+      profRig.root.scale.setScalar(1);
+      profRig.root.position.set(padPosition.x + 1.45, 0, padPosition.z + 0.45);
+      profRig.root.rotation.y = -Math.PI * 0.36;
+      profShadow.visible = true;
+      profShadow.position.set(padPosition.x + 1.45, 0.02, padPosition.z + 0.45);
+      profRig.leftLeg.rotation.x = 0;
+      profRig.rightLeg.rotation.x = 0;
+      profRig.leftArm.rotation.x = -0.18;
+      profRig.rightArm.rotation.z = 0.14;
+      profRig.rightArm.rotation.x = -0.35 + Math.sin(elapsed * 1.8) * 0.08;
+      profRig.head.rotation.y = Math.sin(elapsed * 1.1) * 0.15;
+    } else if (mode === 'intro') {
+      // Opening Story Cutscene: Sick Raka -> Prof checks him -> walks to Pod -> Shrink Ray activates!
+      monScreen.material = mats.labMonitorSickScreen;
+      const shrinkBeamPower =
+        phaseTime >= 4.9 ? Math.max(0.18, 0.42 + Math.sin(elapsed * 16) * 0.12) : 0.14;
+      (padBeam.material as THREE.MeshBasicMaterial).color.setHex(
+        phaseTime >= 4.9 ? 0x22d3ee : 0x0ea5e9
+      );
+      (padBeam.material as THREE.MeshBasicMaterial).opacity = shrinkBeamPower;
+      padBeam.visible = true;
+      padBeam.scale.set(
+        1 + Math.sin(elapsed * 10) * 0.05,
+        1,
+        1 + Math.sin(elapsed * 10) * 0.05
+      );
 
-      profRig.leftLeg.rotation.x = stride * 0.45;
-      profRig.rightLeg.rotation.x = -stride * 0.45;
-      profRig.leftArm.rotation.x = -stride * 0.38;
+      // Raka resting / shivering on pediatric bed
+      rakaRig.root.position.set(0, 0.72 + Math.sin(elapsed * 2.5) * 0.015, -0.15);
+      rakaRig.root.rotation.x = -1.24;
+      rakaRig.rightArm.rotation.z = -0.1;
+      rakaRig.head.rotation.y = Math.sin(elapsed * 1.5) * 0.1;
+      rakaRig.head.rotation.z = Math.sin(elapsed * 8.0) * 0.04;
 
-      if (walkT >= 0.98) {
-        // Warmly waves right hand and nods happily at grandson Raka
-        profRig.rightArm.rotation.z = 2.45 + Math.sin(elapsed * 5.0) * 0.22;
-        profRig.rightArm.rotation.x = -0.25;
-      } else {
+      if (phaseTime < 2.8) {
+        // Stage 0: Professor stands beside Raka's bed, checking vitals gently
+        profRig.root.visible = true;
+        profShadow.visible = true;
+        profRig.root.scale.setScalar(1);
+        profRig.root.position.set(0.95, 0, 0.25);
+        profRig.root.rotation.y = Math.PI * 0.42;
+        profShadow.position.set(0.95, 0.02, 0.25);
+        profRig.leftLeg.rotation.x = 0;
+        profRig.rightLeg.rotation.x = 0;
+        profRig.leftArm.rotation.x = -0.35;
+        profRig.rightArm.rotation.z = 0.25;
+        profRig.rightArm.rotation.x = -0.65 + Math.sin(elapsed * 3.5) * 0.12;
+        profRig.head.rotation.x = 0.18;
+        profRig.head.rotation.y = Math.sin(elapsed * 1.8) * 0.12;
+      } else if (phaseTime < 5.0) {
+        // Stage 1A: Professor walks briskly from bed back to Shrink Pad to board Nano-Pod
+        profRig.root.visible = true;
+        profShadow.visible = true;
+        profRig.root.scale.setScalar(1);
+        const walkT = THREE.MathUtils.clamp((phaseTime - 2.8) / 2.1, 0, 1);
+        const smooth = walkT * walkT * (3 - 2 * walkT);
+        const px = THREE.MathUtils.lerp(0.95, padPosition.x + 0.55, smooth);
+        const pz = THREE.MathUtils.lerp(0.25, padPosition.z + 0.2, smooth);
+        const stride = Math.sin(elapsed * 9.5);
+        profRig.root.position.set(px, Math.abs(stride) * 0.045, pz);
+        profRig.root.rotation.y = -Math.PI * 0.48;
+        profShadow.position.set(px, 0.02, pz);
+        profRig.leftLeg.rotation.x = stride * 0.48;
+        profRig.rightLeg.rotation.x = -stride * 0.48;
+        profRig.leftArm.rotation.x = -stride * 0.42;
+        profRig.rightArm.rotation.x = stride * 0.42;
         profRig.rightArm.rotation.z = 0.14;
-        profRig.rightArm.rotation.x = stride * 0.38;
+        profRig.head.rotation.x = 0.05;
+      } else {
+        // Stage 1B & 2: Profesor climbed inside Nano-Pod!
+        profRig.root.visible = false;
+        profShadow.visible = false;
       }
-      profRig.head.rotation.x = Math.sin(elapsed * 2.4) * 0.08;
-      profRig.head.rotation.y = Math.sin(elapsed * 1.4) * 0.06;
+    } else {
+      // Ending Cutscene: Healthy Monitor, Sitting/Waving Raka, Re-expanded Profesor!
+      monScreen.material = mats.labMonitorScreen;
+      const beamPhase = Math.max(0, 1 - Math.max(0, phaseTime - 2.6) * 0.9);
+      padBeam.visible = beamPhase > 0.02;
+      (padBeam.material as THREE.MeshBasicMaterial).color.setHex(0x0ea5e9);
+      (padBeam.material as THREE.MeshBasicMaterial).opacity = beamPhase * 0.25;
+      padBeam.scale.set(
+        1 + Math.sin(elapsed * 8) * 0.05,
+        1,
+        1 + Math.sin(elapsed * 8) * 0.05
+      );
+
+      // Raka sits upright happily waving & bouncing
+      rakaRig.root.rotation.x = 0;
+      rakaRig.rightArm.rotation.z = -0.5 + Math.sin(elapsed * 5.8) * 0.42;
+      rakaRig.head.rotation.y = -0.35 + Math.sin(elapsed * 2.1) * 0.12;
+      rakaRig.head.rotation.z = Math.sin(elapsed * 2.6) * 0.07;
+      rakaRig.root.position.set(0, 0.68 + Math.abs(Math.sin(elapsed * 3.2)) * 0.04, -0.35);
+
+      if (profRig.root.visible) {
+        profShadow.visible = true;
+        const walkT = THREE.MathUtils.clamp((phaseTime - 3.6) / 2.4, 0, 1);
+        const smoothWalk = walkT * walkT * (3 - 2 * walkT);
+        const px = THREE.MathUtils.lerp(padPosition.x, 0.05, smoothWalk);
+        const pz = THREE.MathUtils.lerp(padPosition.z, 0.35, smoothWalk);
+        const isWalking = walkT > 0.02 && walkT < 0.98;
+        const stride = isWalking ? Math.sin(elapsed * 8.5) : 0;
+
+        profRig.root.position.set(px, isWalking ? Math.abs(stride) * 0.045 : 0, pz);
+        profRig.root.rotation.y = Math.PI * 0.44;
+        profShadow.position.set(px, 0.02, pz);
+
+        profRig.leftLeg.rotation.x = stride * 0.45;
+        profRig.rightLeg.rotation.x = -stride * 0.45;
+        profRig.leftArm.rotation.x = -stride * 0.38;
+
+        if (walkT >= 0.98) {
+          profRig.rightArm.rotation.z = 2.45 + Math.sin(elapsed * 5.0) * 0.22;
+          profRig.rightArm.rotation.x = -0.25;
+        } else {
+          profRig.rightArm.rotation.z = 0.14;
+          profRig.rightArm.rotation.x = stride * 0.38;
+        }
+        profRig.head.rotation.x = Math.sin(elapsed * 2.4) * 0.08;
+        profRig.head.rotation.y = Math.sin(elapsed * 1.4) * 0.06;
+      }
     }
 
-    // Floating celebratory healing motes
+    // Floating bio/healing motes
     for (let i = 0; i < moteCount; i++) {
       const a = elapsed * 0.8 + i * 1.7;
       const rx = Math.sin(a * 0.9 + i) * 4.2;
@@ -927,10 +1332,13 @@ export function createLabEndingWorld(mats: MaterialLibrary): LabEndingController
     group,
     profRig,
     rakaRig,
+    profShadow,
+    monScreen,
     padBeam,
     padRing,
     celebrationMotes,
     padPosition,
+    bedPosition,
     update,
     dispose: () => {
       disposables.forEach((d) => d.dispose());

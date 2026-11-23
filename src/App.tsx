@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { NanoMedikaEngine } from './game/engine';
 import { loadProgress, SavedProgress } from './game/storage';
-import { HudSnapshot, WeaponId, ZONES, ZoneIndex } from './game/types';
+import { ANUS_EXIT_Z, HudSnapshot, WeaponId, ZONES, ZoneIndex } from './game/types';
 import { TitleScreen } from './components/TitleScreen';
 import { GameHUD } from './components/GameHUD';
 import { GameModals } from './components/GameModals';
@@ -17,7 +17,7 @@ const INITIAL_HUD: HudSnapshot = {
   maxHull: 100,
   energy: 100,
   maxEnergy: 100,
-  patientVitality: 58,
+  patientVitality: 54,
   score: 0,
   kills: 0,
   combo: 0,
@@ -26,23 +26,30 @@ const INITIAL_HUD: HudSnapshot = {
   zoneProgress: 0,
   zoneRemainingEnemies: 6,
   distanceMeters: 0,
-  targetExitMeters: 2587,
+  targetExitMeters: Math.abs(ANUS_EXIT_Z) + 2,
   endlessSector: 0,
   bossActive: false,
   bossDefeated: false,
-  bossHp: 720,
-  bossMaxHp: 720,
+  bossHp: 760,
+  bossMaxHp: 760,
   bossName: 'CHRONO-VIRUS OMEGA',
   bioMessage: ZONES[0].bioTip,
   bioAssistReady: true,
   rayTracingEnabled: true,
   isSoftwareGl: false,
   muted: false,
+  hapticsEnabled: true,
+  hapticsSupported: typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function',
   boostCooldown: 0,
   elapsedSeconds: 0,
+  introStage: 0,
+  introSubtitle: '',
   endingStage: 0,
   endingSubtitle: '',
   endingReadyForSummary: false,
+  impactEventId: 0,
+  impactFlashKind: 'none',
+  screenShakeStrength: 0,
   targetLock: {
     active: false,
     screenX: 50,
@@ -59,11 +66,13 @@ const INITIAL_HUD: HudSnapshot = {
     robotDx: 2.4,
     robotDz: 0,
     nextOrganLabel: 'Katup Faring',
-    nextOrganDistance: 128,
+    nextOrganDistance: 136,
     nextOrganDx: 0,
-    nextOrganDz: -128,
+    nextOrganDz: -136,
     tunnelSamples: [],
     enemies: [],
+    branches: [],
+    obstacles: [],
   },
 };
 
@@ -96,17 +105,39 @@ export default function App() {
     };
   }, []);
 
-  const handleStart = (startZone: ZoneIndex = 0) => engineRef.current?.startMission(startZone);
+  const handleStart = (startZone: ZoneIndex = 0) => {
+    window.scrollTo({ top: 0, behavior: 'auto' });
+    engineRef.current?.startMission(startZone);
+  };
   const handleResume = () => engineRef.current?.setPhase('playing');
   const handlePause = () => engineRef.current?.setPhase('paused');
   const handleRestart = () => engineRef.current?.startMission(0);
+  const handleSkipIntro = () => engineRef.current?.skipIntro();
   const handleSelectWeapon = (id: WeaponId) => engineRef.current?.selectWeapon(id);
   const handleToggleRayTracing = () => engineRef.current?.toggleRayTracing();
   const handleToggleMute = () => engineRef.current?.toggleMute();
+  const handleToggleHaptics = () => engineRef.current?.toggleHaptics();
   const handleOpenVictorySummary = () => engineRef.current?.openVictorySummary();
+  const handleMobileInput = (
+    moveX: number,
+    moveZ: number,
+    aimX?: number,
+    aimY?: number,
+    firing?: boolean
+  ) => engineRef.current?.setMobileTouchInput(moveX, moveZ, aimX, aimY, firing);
+  const handleMobileBoost = () => engineRef.current?.triggerMobileBoost();
+  const handleMobileAssist = () => engineRef.current?.triggerMobileAssist();
+
+  const isScrollableTitle = hud.phase === 'title';
 
   return (
-    <main className="relative h-screen w-screen overflow-hidden bg-[#070c16]">
+    <main
+      className={`relative bg-[#070c16] ${
+        isScrollableTitle
+          ? 'min-h-screen w-full overflow-x-hidden'
+          : 'h-screen w-screen overflow-hidden touch-none'
+      }`}
+    >
       {/* Isolated WebGL Canvas Mount */}
       <div
         ref={canvasMountRef}
@@ -130,7 +161,11 @@ export default function App() {
           onSelectWeapon={handleSelectWeapon}
           onToggleRayTracing={handleToggleRayTracing}
           onToggleMute={handleToggleMute}
+          onToggleHaptics={handleToggleHaptics}
           onPause={handlePause}
+          onMobileInput={handleMobileInput}
+          onMobileBoost={handleMobileBoost}
+          onMobileAssist={handleMobileAssist}
         />
       )}
 
@@ -139,6 +174,7 @@ export default function App() {
         savedProgress={savedProgress}
         onResume={handleResume}
         onRestart={handleRestart}
+        onSkipIntro={handleSkipIntro}
         onToggleRayTracing={handleToggleRayTracing}
         onOpenVictorySummary={handleOpenVictorySummary}
       />

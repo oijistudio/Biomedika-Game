@@ -1,13 +1,14 @@
 import React from 'react';
 import { HeartPulse, Play, RotateCcw, Sparkles, Trophy } from 'lucide-react';
 import { SavedProgress } from '../game/storage';
-import { HudSnapshot } from '../game/types';
+import { HudSnapshot, ZONES } from '../game/types';
 
 interface GameModalsProps {
   hud: HudSnapshot;
   savedProgress: SavedProgress;
   onResume: () => void;
   onRestart: () => void;
+  onSkipIntro: () => void;
   onToggleRayTracing: () => void;
   onOpenVictorySummary: () => void;
 }
@@ -17,9 +18,53 @@ export const GameModals: React.FC<GameModalsProps> = ({
   savedProgress,
   onResume,
   onRestart,
+  onSkipIntro,
   onToggleRayTracing,
   onOpenVictorySummary,
 }) => {
+  // Unobstructed 3D Opening Story Intro Cutscene Overlay
+  if (hud.phase === 'intro') {
+    const introLabel =
+      hud.introStage === 0
+        ? 'Laboratorium · Memeriksa Kondisi Raka'
+        : hud.introStage === 1
+        ? 'Landasan Kuantum · Penyusutan Nano-Pod'
+        : 'Masuk Rongga Mulut · Ekspedisi Dimulai';
+
+    return (
+      <div className="pointer-events-none fixed inset-0 z-30 flex flex-col justify-between p-4 sm:p-6 md:p-8">
+        <div className="flex items-center justify-between gap-3">
+          <div
+            className="rounded-lg border border-cyan-400/45 px-3.5 py-2 text-[11px] font-extrabold tracking-widest text-cyan-200 uppercase shadow-lg sm:text-xs"
+            style={{ backgroundColor: 'rgba(6, 14, 24, 0.84)' }}
+          >
+            {introLabel}
+          </div>
+
+          <button
+            type="button"
+            onClick={onSkipIntro}
+            className="pointer-events-auto cursor-pointer rounded-xl border border-cyan-400/60 px-4 py-2 text-xs font-extrabold tracking-wider text-cyan-200 uppercase shadow-lg transition-colors hover:bg-cyan-400 hover:text-slate-950"
+            style={{ backgroundColor: 'rgba(6, 14, 24, 0.86)' }}
+          >
+            Lewati Intro →
+          </button>
+        </div>
+
+        <div className="mx-auto w-full max-w-2xl">
+          <div
+            className="pointer-events-auto rounded-2xl border border-cyan-400/35 px-5 py-4 text-center shadow-2xl sm:px-6"
+            style={{ backgroundColor: 'rgba(6, 12, 22, 0.86)' }}
+          >
+            <p className="text-sm leading-relaxed font-medium text-slate-100 md:text-base">
+              {hud.introSubtitle}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Unobstructed 3D Laboratory Ending Cutscene Overlay
   if (hud.phase === 'ending') {
     const stageLabel =
@@ -30,11 +75,10 @@ export const GameModals: React.FC<GameModalsProps> = ({
         : 'Raka Sehat Total · Ending';
 
     return (
-      <div className="pointer-events-none fixed inset-0 z-30 flex flex-col justify-between p-5 md:p-8">
-        {/* Top Cinema Badge & Action */}
+      <div className="pointer-events-none fixed inset-0 z-30 flex flex-col justify-between p-4 sm:p-6 md:p-8">
         <div className="flex items-center justify-between gap-3">
           <div
-            className="rounded-lg border border-emerald-400/45 px-4 py-2 text-xs font-extrabold tracking-widest text-emerald-200 uppercase shadow-lg"
+            className="rounded-lg border border-emerald-400/45 px-3.5 py-2 text-[11px] font-extrabold tracking-widest text-emerald-200 uppercase shadow-lg sm:text-xs"
             style={{ backgroundColor: 'rgba(6, 14, 24, 0.84)' }}
           >
             {stageLabel}
@@ -56,10 +100,9 @@ export const GameModals: React.FC<GameModalsProps> = ({
           </button>
         </div>
 
-        {/* Bottom Cinema Subtitle Card (Center 3D Lab View Remains 100% Clear) */}
         <div className="mx-auto w-full max-w-2xl">
           <div
-            className="pointer-events-auto rounded-2xl border border-cyan-400/35 px-6 py-4 text-center shadow-2xl"
+            className="pointer-events-auto rounded-2xl border border-cyan-400/35 px-5 py-4 text-center shadow-2xl sm:px-6"
             style={{ backgroundColor: 'rgba(6, 12, 22, 0.86)' }}
           >
             <p className="text-sm leading-relaxed font-medium text-slate-100 md:text-base">
@@ -95,18 +138,7 @@ export const GameModals: React.FC<GameModalsProps> = ({
 
   const mins = Math.floor(hud.elapsedSeconds / 60);
   const secs = String(hud.elapsedSeconds % 60).padStart(2, '0');
-  const zoneLabel =
-    hud.zoneIndex === 0
-      ? 'Rongga Mulut'
-      : hud.zoneIndex === 1
-      ? 'Aliran Darah'
-      : hud.zoneIndex === 2
-      ? 'Sistem Saraf Pusat'
-      : hud.zoneIndex === 3
-      ? 'Ruang Jantung'
-      : hud.zoneIndex === 4
-      ? 'Lorong Pencernaan Endless'
-      : 'Gerbang Keluar Anus';
+  const zoneLabel = ZONES[hud.zoneIndex]?.name ?? 'Tubuh Raka';
 
   return (
     <div
@@ -114,12 +146,12 @@ export const GameModals: React.FC<GameModalsProps> = ({
       style={{ backgroundColor: 'rgba(4, 8, 16, 0.72)' }}
     >
       <div
-        className="w-full max-w-md rounded-2xl border border-cyan-500/35 p-7 text-slate-100 shadow-2xl"
+        className="w-full max-w-md rounded-2xl border border-cyan-500/35 p-6 text-slate-100 shadow-2xl sm:p-7"
         style={{ backgroundColor: 'rgba(8, 14, 26, 0.96)' }}
       >
         {hud.phase === 'paused' && (
           <>
-            <h2 className="mb-1 text-2xl font-extrabold tracking-wide text-cyan-300 uppercase">
+            <h2 className="font-display mb-1 text-2xl font-extrabold tracking-wide text-cyan-300 uppercase">
               Ekspedisi Dijeda
             </h2>
             <p className="mb-6 text-sm text-slate-300">
@@ -167,15 +199,13 @@ export const GameModals: React.FC<GameModalsProps> = ({
           <>
             <div className="mb-3 flex items-center gap-3 text-emerald-300">
               <Trophy className="h-7 w-7" />
-              <h2 className="text-2xl font-extrabold tracking-wide uppercase">
+              <h2 className="font-display text-2xl font-extrabold tracking-wide uppercase">
                 Raka Sembuh Total!
               </h2>
             </div>
             <p className="mb-5 text-sm leading-relaxed text-slate-300">
               Profesor Aris dan B.I.O.-7 berhasil membasmi{' '}
-              <span className="font-semibold text-rose-300">Chrono-Virus Omega</span>, menembus lorong
-              pencernaan panjang hingga keluar kembali ke laboratorium, kembali ke wujud asli, dan menyaksikan
-              Raka pulih 100%!
+              <span className="font-semibold text-rose-300">Chrono-Virus Omega</span>, menembus 10 zona organ &amp; lorong bercabang hingga keluar kembali ke laboratorium dan menyaksikan Raka pulih 100%!
             </p>
             <div className="mb-4 grid grid-cols-2 gap-3 text-center">
               <div className="rounded-xl border border-slate-700/70 bg-slate-900/75 p-3">
@@ -220,7 +250,7 @@ export const GameModals: React.FC<GameModalsProps> = ({
           <>
             <div className="mb-3 flex items-center gap-3 text-rose-400">
               <HeartPulse className="h-7 w-7" />
-              <h2 className="text-2xl font-extrabold tracking-wide uppercase">
+              <h2 className="font-display text-2xl font-extrabold tracking-wide uppercase">
                 Integritas Pod Kritis
               </h2>
             </div>

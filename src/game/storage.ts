@@ -30,13 +30,10 @@ export function loadProgress(): SavedProgress {
       bestTimeSeconds: typeof parsed.bestTimeSeconds === 'number' ? parsed.bestTimeSeconds : null,
       totalKills: typeof parsed.totalKills === 'number' ? parsed.totalKills : 0,
       highestZoneReached:
-        parsed.highestZoneReached === 0 ||
-        parsed.highestZoneReached === 1 ||
-        parsed.highestZoneReached === 2 ||
-        parsed.highestZoneReached === 3 ||
-        parsed.highestZoneReached === 4 ||
-        parsed.highestZoneReached === 5
-          ? parsed.highestZoneReached
+        typeof parsed.highestZoneReached === 'number' &&
+        parsed.highestZoneReached >= 0 &&
+        parsed.highestZoneReached <= 9
+          ? (parsed.highestZoneReached as ZoneIndex)
           : 0,
       missionsCompleted: typeof parsed.missionsCompleted === 'number' ? parsed.missionsCompleted : 0,
       bestVitality: typeof parsed.bestVitality === 'number' ? parsed.bestVitality : 58,

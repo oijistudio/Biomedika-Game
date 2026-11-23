@@ -121,12 +121,12 @@ export class BioAudioEngine {
   public setThrustIntensity(intensity: number): void {
     if (!this.ctx || !this.droneOsc || !this.droneGain || this.muted) return;
     const now = this.ctx.currentTime;
-    const baseFreq = this.currentZone === 3 ? 44 : this.currentZone === 4 ? 46 : 52;
+    const baseFreq = this.currentZone === 4 ? 44 : this.currentZone >= 7 ? 46 : 52;
     this.droneOsc.frequency.setTargetAtTime(baseFreq + intensity * 40, now, 0.08);
     this.droneGain.gain.setTargetAtTime(0.028 + intensity * 0.05, now, 0.08);
   }
 
-  // Context-Aware Biological Soundscape per Organ Zone (including deep stomach/gut gurgles)
+  // Context-Aware Biological Soundscape per 10 Organ Zones (including deep stomach/gut gurgles)
   public updateOrganAmbience(
     zoneIndex: ZoneIndex,
     speedRatio: number,
@@ -146,7 +146,13 @@ export class BioAudioEngine {
       this.ambientFilter.Q.setTargetAtTime(1.4, now, 0.18);
       this.ambientNoiseGain.gain.setTargetAtTime(0.055 + speedRatio * 0.045, now, 0.18);
     } else if (zoneIndex === 1) {
-      // Zona 2: Aliran Darah Arteri — pulsing blood flow whooshing!
+      // Zona 2: Esofagus & Bronkus — hollow respiratory airflow rush
+      this.ambientFilter.type = 'bandpass';
+      this.ambientFilter.frequency.setTargetAtTime(420 + speedRatio * 260, now, 0.14);
+      this.ambientFilter.Q.setTargetAtTime(1.8, now, 0.14);
+      this.ambientNoiseGain.gain.setTargetAtTime(0.075 + speedRatio * 0.06, now, 0.14);
+    } else if (zoneIndex === 2) {
+      // Zona 3: Aliran Darah Arteri — pulsing blood flow whooshing!
       const pulseSweep = 250 + speedRatio * 240 + heartBeatWave * 210;
       this.ambientFilter.type = 'bandpass';
       this.ambientFilter.frequency.setTargetAtTime(pulseSweep, now, 0.09);
@@ -156,8 +162,8 @@ export class BioAudioEngine {
         now,
         0.09
       );
-    } else if (zoneIndex === 2) {
-      // Zona 3: Sistem Saraf Pusat — crisp neural hum + random synaptic firing sparks!
+    } else if (zoneIndex === 3) {
+      // Zona 4: Sistem Saraf Pusat — crisp neural hum + random synaptic firing sparks!
       this.ambientFilter.type = 'bandpass';
       this.ambientFilter.frequency.setTargetAtTime(880 + speedRatio * 340, now, 0.15);
       this.ambientFilter.Q.setTargetAtTime(3.4, now, 0.15);
@@ -168,21 +174,27 @@ export class BioAudioEngine {
         this.neuralSparkTimer = 0.35 + Math.random() * 0.65;
         this.playNeuralSpark();
       }
-    } else if (zoneIndex === 3) {
-      // Zona 4: Ruang Jantung — deep cardiac vascular rush synced to systole
+    } else if (zoneIndex === 4) {
+      // Zona 5: Ruang Jantung — deep cardiac vascular rush synced to systole
       this.ambientFilter.type = 'lowpass';
       this.ambientFilter.frequency.setTargetAtTime(185 + heartBeatWave * 220, now, 0.08);
       this.ambientFilter.Q.setTargetAtTime(2.8, now, 0.1);
       this.ambientNoiseGain.gain.setTargetAtTime(0.085 + heartBeatWave * 0.095, now, 0.08);
-    } else if (zoneIndex === 4) {
-      // Zona 5: Lorong Pencernaan / Perut Endless — warm churning peristalsis & visceral whoosh
+    } else if (zoneIndex === 5 || zoneIndex === 6) {
+      // Zona 6 & 7: Hati & Ginjal — rich fluid filtration rush
+      this.ambientFilter.type = 'bandpass';
+      this.ambientFilter.frequency.setTargetAtTime(280 + speedRatio * 240, now, 0.14);
+      this.ambientFilter.Q.setTargetAtTime(2.2, now, 0.14);
+      this.ambientNoiseGain.gain.setTargetAtTime(0.09 + speedRatio * 0.07, now, 0.14);
+    } else if (zoneIndex === 7 || zoneIndex === 8) {
+      // Zona 8 & 9: Usus Halus & Kolon Panjang — warm churning peristalsis & visceral whoosh
       const churn = 160 + speedRatio * 260 + Math.sin(now * 2.2) * 55;
       this.ambientFilter.type = 'lowpass';
       this.ambientFilter.frequency.setTargetAtTime(churn, now, 0.14);
       this.ambientFilter.Q.setTargetAtTime(2.6, now, 0.14);
       this.ambientNoiseGain.gain.setTargetAtTime(0.11 + speedRatio * 0.08, now, 0.14);
     } else {
-      // Zona 6: Gerbang Keluar Anus — bright airy daylight portal rush
+      // Zona 10: Gerbang Keluar Anus — bright airy daylight portal rush
       this.ambientFilter.type = 'bandpass';
       this.ambientFilter.frequency.setTargetAtTime(620 + speedRatio * 360, now, 0.12);
       this.ambientFilter.Q.setTargetAtTime(2.0, now, 0.12);
@@ -192,7 +204,8 @@ export class BioAudioEngine {
     // Periodic deep stomach / visceral body fluid gurgles inside the body
     this.visceralGurgleTimer -= dt;
     if (this.visceralGurgleTimer <= 0) {
-      this.visceralGurgleTimer = zoneIndex === 4 ? 1.1 + Math.random() * 1.4 : 2.1 + Math.random() * 2.4;
+      const intenseGut = zoneIndex >= 5 && zoneIndex <= 8;
+      this.visceralGurgleTimer = intenseGut ? 1.05 + Math.random() * 1.4 : 2.1 + Math.random() * 2.2;
       this.playVisceralGurgle(zoneIndex);
     }
   }
@@ -201,13 +214,14 @@ export class BioAudioEngine {
   private playVisceralGurgle(zoneIndex: ZoneIndex): void {
     if (!this.ctx || !this.masterGain || this.muted) return;
     const now = this.ctx.currentTime;
-    const bubbleCount = zoneIndex === 4 ? 3 : 2;
+    const intense = zoneIndex >= 5 && zoneIndex <= 8;
+    const bubbleCount = intense ? 3 : 2;
     for (let i = 0; i < bubbleCount; i++) {
       const start = now + i * (0.09 + Math.random() * 0.08);
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
       const bp = this.ctx.createBiquadFilter();
-      const fBase = zoneIndex === 4 ? 95 + Math.random() * 85 : 120 + Math.random() * 100;
+      const fBase = intense ? 95 + Math.random() * 85 : 120 + Math.random() * 100;
 
       osc.type = 'sine';
       osc.frequency.setValueAtTime(fBase, start);
@@ -219,7 +233,7 @@ export class BioAudioEngine {
       bp.Q.value = 3.2;
 
       gain.gain.setValueAtTime(0.001, start);
-      gain.gain.linearRampToValueAtTime(zoneIndex === 4 ? 0.085 : 0.055, start + 0.04);
+      gain.gain.linearRampToValueAtTime(intense ? 0.085 : 0.055, start + 0.04);
       gain.gain.exponentialRampToValueAtTime(0.001, start + 0.26);
 
       osc.connect(bp);
@@ -233,7 +247,7 @@ export class BioAudioEngine {
   // Procedural Adaptive Action Music & Warm Laboratory Ending Music
   public updateMusic(dt: number, mode: 'playing' | 'ending' | 'idle', zoneIndex: ZoneIndex): void {
     if (!this.ctx || !this.masterGain || this.muted || mode === 'idle') return;
-    const stepDur = mode === 'ending' ? 0.28 : zoneIndex === 3 ? 0.115 : 0.125; // ~120-130 BPM 16ths
+    const stepDur = mode === 'ending' ? 0.28 : zoneIndex === 4 ? 0.115 : 0.125; // ~120-130 BPM 16ths
     this.musicStepTimer += dt;
     if (this.musicStepTimer < stepDur) return;
     this.musicStepTimer -= stepDur;
@@ -256,8 +270,8 @@ export class BioAudioEngine {
     }
 
     // Active Combat / Exploration Action Synth Groove inside the Body
-    // Bass root frequency shifts by organ zone for musical progression
-    const zoneRoots = [73.42, 82.41, 92.5, 65.41, 87.31, 98.0]; // D2, E2, F#2, C2, F2, G2
+    // Bass root frequency shifts across all 10 organ zones for musical progression
+    const zoneRoots = [73.42, 77.78, 82.41, 92.5, 65.41, 69.3, 87.31, 82.41, 92.5, 98.0];
     const root = zoneRoots[zoneIndex] || 73.42;
 
     // 1. Driving Synth Kick on quarters (0, 4, 8, 12)

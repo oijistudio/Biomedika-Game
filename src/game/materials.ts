@@ -24,6 +24,7 @@ export interface MaterialLibrary {
   labWall: THREE.MeshStandardMaterial;
   labDesk: THREE.MeshPhysicalMaterial;
   labMonitorScreen: THREE.MeshStandardMaterial;
+  labMonitorSickScreen: THREE.MeshStandardMaterial;
   rakaShirt: THREE.MeshStandardMaterial;
   darkHair: THREE.MeshStandardMaterial;
   labPants: THREE.MeshStandardMaterial;
@@ -286,6 +287,55 @@ function createHealthyMonitorTexture(maxAniso: number): THREE.CanvasTexture {
   return tex;
 }
 
+function createSickMonitorTexture(maxAniso: number): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#1f0710';
+  ctx.fillRect(0, 0, 512, 256);
+
+  ctx.strokeStyle = 'rgba(244, 63, 94, 0.16)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < 512; x += 32) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, 256);
+    ctx.stroke();
+  }
+  for (let y = 0; y < 256; y += 32) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(512, y);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = '#fb7185';
+  ctx.font = 'bold 24px system-ui, sans-serif';
+  ctx.fillText('RAKA · STATUS: PATOGEN KRITIS', 24, 42);
+
+  ctx.fillStyle = '#fbbf24';
+  ctx.font = '600 18px system-ui, sans-serif';
+  ctx.fillText('SUHU: 39.4°C   INFEKSI JANTUNG & ORGAN', 24, 74);
+
+  ctx.strokeStyle = '#f43f5e';
+  ctx.lineWidth = 4.5;
+  ctx.beginPath();
+  for (let x = 16; x <= 496; x += 6) {
+    const jitter = Math.sin(x * 0.25) * 18 + Math.cos(x * 0.6) * 14;
+    const y = 165 + jitter;
+    if (x === 16) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAniso;
+  return tex;
+}
+
 export function createMaterialLibrary(
   renderer: THREE.WebGLRenderer,
   isSoftwareGl: boolean
@@ -295,6 +345,7 @@ export function createMaterialLibrary(
   const metalTex = createBrushedMetalTexture(maxAniso);
   const labFloorTex = createLabFloorTexture(maxAniso);
   const monitorTex = createHealthyMonitorTexture(maxAniso);
+  const monitorSickTex = createSickMonitorTexture(maxAniso);
   const tunnelTimeUniform = { value: 0 };
 
   const titaniumHull = new THREE.MeshPhysicalMaterial({
@@ -429,44 +480,58 @@ export function createMaterialLibrary(
       `
       #include <color_fragment>
       float depth = -vWorldPosCustom.z;
-      // Ascending smoothstep thresholds across all 6 anatomical zones:
-      // 1 Mouth (0..130), 2 Blood (130..330), 3 CNS (330..540), 4 Heart (540..760),
-      // 5 Endless Intestinal Corridor (760..2480), 6 Rectum & Anal Exit (2480..2610)
-      float tBlood = smoothstep(115.0, 145.0, depth);
-      float tNerve = smoothstep(315.0, 345.0, depth);
-      float tHeart = smoothstep(525.0, 555.0, depth);
-      float tGut   = smoothstep(745.0, 785.0, depth);
-      float tExit  = smoothstep(2470.0, 2565.0, depth);
+      // Ascending smoothstep thresholds across all 10 anatomical zones (0..6240):
+      float tBronch = smoothstep(125.0, 155.0, depth);
+      float tBlood  = smoothstep(465.0, 500.0, depth);
+      float tNerve  = smoothstep(905.0, 940.0, depth);
+      float tHeart  = smoothstep(1405.0, 1440.0, depth);
+      float tLiver  = smoothstep(1765.0, 1805.0, depth);
+      float tKidney = smoothstep(2405.0, 2445.0, depth);
+      float tGut    = smoothstep(3105.0, 3145.0, depth);
+      float tColon  = smoothstep(4405.0, 4445.0, depth);
+      float tExit   = smoothstep(6020.0, 6160.0, depth);
 
-      vec3 cMouth = vec3(1.08, 0.85, 0.90);
-      vec3 cBlood = vec3(1.18, 0.34, 0.38);
-      vec3 cNerve = vec3(0.35, 0.48, 1.15);
-      vec3 cHeart = vec3(1.12, 0.28, 0.46);
-      vec3 cGut   = vec3(1.05, 0.62, 0.44);
-      vec3 cExit  = vec3(1.32, 0.95, 0.72);
+      vec3 cMouth  = vec3(1.08, 0.85, 0.90);
+      vec3 cBronch = vec3(1.12, 0.72, 0.78);
+      vec3 cBlood  = vec3(1.18, 0.34, 0.38);
+      vec3 cNerve  = vec3(0.34, 0.48, 1.15);
+      vec3 cHeart  = vec3(1.14, 0.26, 0.46);
+      vec3 cLiver  = vec3(1.08, 0.64, 0.28);
+      vec3 cKidney = vec3(0.45, 0.88, 0.72);
+      vec3 cGut    = vec3(1.06, 0.60, 0.42);
+      vec3 cColon  = vec3(0.95, 0.56, 0.32);
+      vec3 cExit   = vec3(1.34, 0.96, 0.74);
 
-      vec3 zoneTint = mix(cMouth, cBlood, tBlood);
+      vec3 zoneTint = mix(cMouth, cBronch, tBronch);
+      zoneTint = mix(zoneTint, cBlood, tBlood);
       zoneTint = mix(zoneTint, cNerve, tNerve);
       zoneTint = mix(zoneTint, cHeart, tHeart);
+      zoneTint = mix(zoneTint, cLiver, tLiver);
+      zoneTint = mix(zoneTint, cKidney, tKidney);
       zoneTint = mix(zoneTint, cGut, tGut);
+      zoneTint = mix(zoneTint, cColon, tColon);
       zoneTint = mix(zoneTint, cExit, tExit);
 
       diffuseColor.rgb *= zoneTint;
 
-      // Bio-electric synaptic glow lines in Zone 3
+      // Bio-electric synaptic glow lines in Zone 4 (CNS)
       float nervePulse = pow(max(0.0, sin(vWorldPosCustom.z * 0.45 - uTime * 4.5 + vWorldPosCustom.x * 0.35)), 10.0);
       diffuseColor.rgb += vec3(0.15, 0.85, 1.0) * nervePulse * tNerve * (1.0 - tHeart) * 0.75;
 
-      // Cardiac heartbeat shimmer in Zone 4
+      // Cardiac heartbeat shimmer in Zone 5 (Heart)
       float beat = pow(max(0.0, sin(uTime * 3.8 + vWorldPosCustom.z * 0.08)), 6.0);
-      diffuseColor.rgb += vec3(0.9, 0.25, 0.35) * beat * tHeart * (1.0 - tGut) * 0.45;
+      diffuseColor.rgb += vec3(0.9, 0.25, 0.35) * beat * tHeart * (1.0 - tLiver) * 0.45;
 
-      // Peristaltic bio-luminous bands along endless digestive corridor (Zone 5)
+      // Nephron emerald filtration shimmer in Zone 7 (Kidney)
+      float renalPulse = pow(max(0.0, sin(vWorldPosCustom.z * 0.3 - uTime * 3.0)), 8.0);
+      diffuseColor.rgb += vec3(0.15, 0.9, 0.62) * renalPulse * tKidney * (1.0 - tGut) * 0.32;
+
+      // Peristaltic bio-luminous bands along small intestine & colon (Zones 8 & 9)
       float gutWave = pow(max(0.0, sin(vWorldPosCustom.z * 0.22 + uTime * 3.2)), 8.0);
       diffuseColor.rgb += vec3(0.95, 0.55, 0.22) * gutWave * tGut * (1.0 - tExit) * 0.32;
 
-      // Bright external daylight leak near Anal Exit (Zone 6)
-      float exitGlow = smoothstep(2520.0, 2595.0, depth);
+      // Bright external daylight leak near Anal Exit (Zone 10)
+      float exitGlow = smoothstep(6110.0, 6210.0, depth);
       diffuseColor.rgb += vec3(1.0, 0.92, 0.72) * exitGlow * 0.85;
       `
     );
@@ -583,6 +648,15 @@ export function createMaterialLibrary(
     metalness: 0.1,
   });
 
+  const labMonitorSickScreen = new THREE.MeshStandardMaterial({
+    map: monitorSickTex,
+    emissiveMap: monitorSickTex,
+    emissive: 0xffffff,
+    emissiveIntensity: 0.95,
+    roughness: 0.15,
+    metalness: 0.1,
+  });
+
   const rakaShirt = new THREE.MeshStandardMaterial({
     color: 0x0ea5e9,
     roughness: 0.72,
@@ -638,6 +712,7 @@ export function createMaterialLibrary(
     labWall,
     labDesk,
     labMonitorScreen,
+    labMonitorSickScreen,
     rakaShirt,
     darkHair,
     labPants,
@@ -652,6 +727,7 @@ export function createMaterialLibrary(
     metalTex,
     labFloorTex,
     monitorTex,
+    monitorSickTex,
   ];
 
   return {
@@ -678,6 +754,7 @@ export function createMaterialLibrary(
     labWall,
     labDesk,
     labMonitorScreen,
+    labMonitorSickScreen,
     rakaShirt,
     darkHair,
     labPants,

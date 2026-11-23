@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { BioAudioEngine } from './audio';
+import { BioHapticsEngine } from './haptics';
 import { createMaterialLibrary, MaterialLibrary } from './materials';
 import {
   createProfessorPod,
@@ -12,8 +13,10 @@ import {
   VirusKind,
 } from './models';
 import {
+  BRANCH_LOCATIONS,
   createAnatomicalWorld,
   createLabEndingWorld,
+  FORK_NODES,
   getTunnelCenterAtZ,
   getTunnelRadiusAtZ,
   LabEndingController,
@@ -26,7 +29,9 @@ import {
   ANUS_EXIT_Z,
   GamePhase,
   HudSnapshot,
+  MinimapBranchBlip,
   MinimapEnemyBlip,
+  MinimapObstacleBlip,
   TargetLockSnapshot,
   WeaponId,
   WEAPONS,
@@ -125,6 +130,7 @@ export class NanoMedikaEngine {
   private labWorld: LabEndingController;
   private rtPipeline: RayTracingPipeline;
   public audio: BioAudioEngine;
+  public haptics: BioHapticsEngine;
 
   private podRig: ProfessorPodRig;
   private robotRig: AssistantRobotRig;
@@ -144,7 +150,7 @@ export class NanoMedikaEngine {
   private maxHull = 100;
   private energy = 100;
   private maxEnergy = 100;
-  private patientVitality = 58; // Rises to 100 as viruses are purged
+  private patientVitality = 54;
   private score = 0;
   private kills = 0;
   private savedKillsCheckpoint = 0;
@@ -162,13 +168,22 @@ export class NanoMedikaEngine {
   private cannonRecoil = 0;
   private heartBeatPhase = 0;
   private lastHeartBeatPulse = false;
+  private impactEventId = 0;
+  private impactFlashKind: 'none' | 'damage' | 'bossKill' | 'heavyKill' = 'none';
 
   private currentZone: ZoneIndex = 0;
   private bioMessage = ZONES[0].bioTip;
   private bioMessageTimer = 8;
 
   private bossDefeated = false;
-  private nextEndlessWaveZ = -810;
+  private nextEndlessWaveZ = -1835;
+
+  // Intro & Ending Cutscene State
+  private introTime = 0;
+  private introStage = 0;
+  private introSubtitle = '';
+  private introShrinkFlashed = false;
+
   private endingTime = 0;
   private endingStage = 0;
   private endingSubtitle = '';
@@ -184,12 +199,19 @@ export class NanoMedikaEngine {
   private particles: ParticleEntity[] = [];
   private pickups: PickupEntity[] = [];
 
-  // Input state: separated held vs justPressed
+  // Input state: keyboard, mouse, scroll wheel & mobile touch controls
   private heldKeys = new Set<string>();
   private justPressedKeys = new Set<string>();
   private mouseNdc = new THREE.Vector2(0, 0);
   private mouseDown = false;
-  private rightMouseDown = false;
+  private wheelDriveZ = 0;
+  private mobileMoveX = 0;
+  private mobileMoveZ = 0;
+  private mobileAimX = 0;
+  private mobileAimY = 0;
+  private mobileFiring = false;
+  private mobilePendingBoost = false;
+  private mobilePendingAssist = false;
 
   // Shared projectile/particle geometries & materials
   private sharedDisposables: { dispose: () => void }[] = [];
@@ -227,8 +249,9 @@ export class NanoMedikaEngine {
     this.container = container;
     this.onHudUpdate = onHudUpdate;
     this.audio = new BioAudioEngine();
+    this.haptics = new BioHapticsEngine();
 
-    // 1. Software WebGL Guard (detect from GPU renderer string only)
+    // 1. Software WebGL Guard
     this.isSoftwareGl = (() => {
       const gl = document.createElement('canvas').getContext('webgl2');
       if (!gl) return true;
@@ -246,32 +269,37 @@ export class NanoMedikaEngine {
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.toneMappingExposure = 0.88;
     this.renderer.setPixelRatio(this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2));
-    this.renderer.setSize(container.clientWidth || window.innerWidth, container.clientHeight || window.innerHeight);
+    this.renderer.setSize(
+      container.clientWidth || window.innerWidth,
+      container.clientHeight || window.innerHeight
+    );
     this.renderer.shadowMap.enabled = !this.isSoftwareGl;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(this.renderer.domElement);
 
     // 3. Scene, Camera, Fog & RoomEnvironment IBL
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(ZONES[0].fogColor);
-    this.fog = new THREE.FogExp2(ZONES[0].fogColor, 0.0155);
+    this.scene.background = new THREE.Color(0x93c5fd);
+    this.fog = new THREE.FogExp2(0xcbd5e1, 0.008);
     this.scene.fog = this.fog;
 
-    const aspect = (container.clientWidth || window.innerWidth) / (container.clientHeight || window.innerHeight);
+    const aspect =
+      (container.clientWidth || window.innerWidth) /
+      (container.clientHeight || window.innerHeight);
     this.camera = new THREE.PerspectiveCamera(64, aspect, 0.2, 220);
 
     const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
     this.scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
     pmremGenerator.dispose();
 
-    // 4. Lighting Rig (<= 3 shadow casters: 1 Key DirectionalLight)
-    this.hemiLight = new THREE.HemisphereLight(ZONES[0].ambientSky, ZONES[0].ambientGround, 0.9);
+    // 4. Lighting Rig
+    this.hemiLight = new THREE.HemisphereLight(0xe2e8f0, 0x64748b, 0.65);
     this.scene.add(this.hemiLight);
 
-    this.keyLight = new THREE.DirectionalLight(0xfff1e6, 1.55);
-    this.keyLight.position.set(8, 14, 12);
+    this.keyLight = new THREE.DirectionalLight(0xfff1e6, 1.15);
+    this.keyLight.position.set(-3.5, 8.5, 5.5);
     if (!this.isSoftwareGl) {
       this.keyLight.castShadow = true;
       this.keyLight.shadow.mapSize.set(1024, 1024);
@@ -288,7 +316,7 @@ export class NanoMedikaEngine {
     this.scene.add(this.keyLight);
     this.scene.add(this.keyLight.target);
 
-    // 5. Materials, World, Lab Ending Scene, Hero Pod, Assistant Robot, Ray Tracing Pipeline
+    // 5. Materials, Anatomical World, Lab World, Hero Pod, Assistant Robot, Ray Tracing Pipeline
     this.materials = createMaterialLibrary(this.renderer, this.isSoftwareGl);
     this.world = createAnatomicalWorld(this.materials);
     this.scene.add(this.world.group);
@@ -323,7 +351,11 @@ export class NanoMedikaEngine {
     this.laserGeo.scale(1, 1, 2.8);
     this.laserMat = new THREE.MeshBasicMaterial({ color: 0x22d3ee });
     this.cryoMat = new THREE.MeshBasicMaterial({ color: 0x93c5fd });
-    this.novaMat = new THREE.MeshBasicMaterial({ color: 0x34d399, transparent: true, opacity: 0.78 });
+    this.novaMat = new THREE.MeshBasicMaterial({
+      color: 0x34d399,
+      transparent: true,
+      opacity: 0.78,
+    });
     this.enemyOrbMat = new THREE.MeshBasicMaterial({ color: 0xf43f5e });
     this.particleGeo = new THREE.OctahedronGeometry(0.22, 0);
     this.sharedDisposables.push(
@@ -353,7 +385,11 @@ export class NanoMedikaEngine {
     }
 
     for (let i = 0; i < 120; i++) {
-      const mat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.9 });
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0x38bdf8,
+        transparent: true,
+        opacity: 0.9,
+      });
       this.sharedDisposables.push(mat);
       const m = new THREE.Mesh(this.particleGeo, mat);
       m.visible = false;
@@ -400,8 +436,8 @@ export class NanoMedikaEngine {
     this.scene.add(this.lockRingGroup);
     this.sharedDisposables.push(lockMat, lockRingGeo, tickGeo);
 
-    // Build initial world encounter & gates for Title showcase
-    this.setupRunEntities();
+    // Initialize Lab Main Menu Showcase
+    this.applyLabSceneSetup();
     this.bindEvents();
 
     // Pre-warm shaders on GPU
@@ -413,16 +449,36 @@ export class NanoMedikaEngine {
     this.startLoop();
   }
 
+  private applyLabSceneSetup(): void {
+    this.world.group.visible = false;
+    this.labWorld.group.visible = true;
+    this.podRig.root.visible = true;
+    this.podRig.searchlight.intensity = 0;
+    this.robotRig.root.visible = true;
+
+    this.renderer.toneMappingExposure = 0.88;
+    this.fog.density = 0.008;
+    this.fog.color.setHex(0xcbd5e1);
+    (this.scene.background as THREE.Color).setHex(0x93c5fd);
+    this.hemiLight.color.setHex(0xe2e8f0);
+    this.hemiLight.groundColor.setHex(0x64748b);
+    this.hemiLight.intensity = 0.65;
+    this.keyLight.position.set(-3.5, 8.5, 5.5);
+    this.keyLight.target.position.set(0.4, 1.0, 0);
+    this.keyLight.intensity = 1.15;
+  }
+
   private bindEvents(): void {
     window.addEventListener('resize', this.handleResize);
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
     window.addEventListener('blur', this.handleWindowBlur);
+    window.addEventListener('wheel', this.handleWheel, { passive: false });
     const canvas = this.renderer.domElement;
     canvas.addEventListener('mousemove', this.handleMouseMove);
     canvas.addEventListener('mousedown', this.handleMouseDown);
     window.addEventListener('mouseup', this.handleMouseUp);
-    canvas.addEventListener('contextmenu', this.handleContextMenu);
+    window.addEventListener('contextmenu', this.handleContextMenu);
   }
 
   private unbindEvents(): void {
@@ -430,11 +486,12 @@ export class NanoMedikaEngine {
     window.removeEventListener('keydown', this.handleKeyDown);
     window.removeEventListener('keyup', this.handleKeyUp);
     window.removeEventListener('blur', this.handleWindowBlur);
+    window.removeEventListener('wheel', this.handleWheel);
     const canvas = this.renderer.domElement;
     canvas.removeEventListener('mousemove', this.handleMouseMove);
     canvas.removeEventListener('mousedown', this.handleMouseDown);
     window.removeEventListener('mouseup', this.handleMouseUp);
-    canvas.removeEventListener('contextmenu', this.handleContextMenu);
+    window.removeEventListener('contextmenu', this.handleContextMenu);
   }
 
   private handleResize = (): void => {
@@ -483,9 +540,9 @@ export class NanoMedikaEngine {
       this.selectWeapon(3);
     } else if (e.code === 'KeyR') {
       this.toggleRayTracing();
-    } else if ((e.code === 'Enter' || e.code === 'Space') && this.phase === 'title') {
+    } else if (e.code === 'Enter' && this.phase === 'title') {
       e.preventDefault();
-      this.startMission();
+      this.startMission(0);
     }
   };
 
@@ -497,7 +554,10 @@ export class NanoMedikaEngine {
     this.heldKeys.clear();
     this.justPressedKeys.clear();
     this.mouseDown = false;
-    this.rightMouseDown = false;
+    this.wheelDriveZ = 0;
+    this.mobileMoveX = 0;
+    this.mobileMoveZ = 0;
+    this.mobileFiring = false;
   };
 
   private handleMouseMove = (e: MouseEvent): void => {
@@ -509,24 +569,244 @@ export class NanoMedikaEngine {
   private handleMouseDown = (e: MouseEvent): void => {
     this.audio.init();
     if (e.button === 0) this.mouseDown = true;
-    if (e.button === 2) this.rightMouseDown = true;
+    if (e.button === 2 && this.phase === 'playing') {
+      const nextWeapon = ((this.activeWeapon % 3) + 1) as WeaponId;
+      this.selectWeapon(nextWeapon);
+    }
   };
 
   private handleMouseUp = (e: MouseEvent): void => {
     if (e.button === 0) this.mouseDown = false;
-    if (e.button === 2) this.rightMouseDown = false;
+  };
+
+  private handleWheel = (e: WheelEvent): void => {
+    if (this.phase !== 'playing') return;
+    e.preventDefault();
+    const dir = Math.sign(e.deltaY);
+    if (dir === 0) return;
+    const impulse = Math.min(0.9, Math.max(0.38, Math.abs(e.deltaY) / 110));
+    // Scroll up (deltaY < 0) thrusts forward (-Z), scroll down (deltaY > 0) pulls back (+Z)
+    this.wheelDriveZ = THREE.MathUtils.clamp(this.wheelDriveZ + dir * impulse, -1.5, 1.5);
+    this.podState.vel.z += dir * 6.5;
   };
 
   private handleContextMenu = (e: MouseEvent): void => {
-    e.preventDefault();
+    if (this.phase === 'playing') {
+      e.preventDefault();
+    }
   };
+
+  public setMobileTouchInput(
+    moveX: number,
+    moveZ: number,
+    aimX?: number,
+    aimY?: number,
+    firing?: boolean
+  ): void {
+    this.audio.init();
+    this.mobileMoveX = THREE.MathUtils.clamp(moveX, -1, 1);
+    this.mobileMoveZ = THREE.MathUtils.clamp(moveZ, -1, 1);
+    if (aimX !== undefined) {
+      this.mobileAimX = THREE.MathUtils.clamp(aimX, -1, 1);
+      this.mouseNdc.x = this.mobileAimX;
+    }
+    if (aimY !== undefined) {
+      this.mobileAimY = THREE.MathUtils.clamp(aimY, -1, 1);
+      this.mouseNdc.y = this.mobileAimY;
+    }
+    if (firing !== undefined) {
+      this.mobileFiring = firing;
+    }
+  }
+
+  public triggerMobileBoost(): void {
+    this.audio.init();
+    this.mobilePendingBoost = true;
+  }
+
+  public triggerMobileAssist(): void {
+    this.audio.init();
+    this.mobilePendingAssist = true;
+  }
+
+  public toggleHaptics(): void {
+    this.haptics.setEnabled(!this.haptics.isEnabled());
+    if (this.haptics.isEnabled()) {
+      this.haptics.pulsePickup();
+    }
+    this.emitHudSnapshot();
+  }
 
   public startMission(startZone: ZoneIndex = 0): void {
     this.audio.init();
     this.audio.playBioChirp();
-    this.resetRunState(startZone);
+    this.haptics.pulseGateOpen();
+    if (startZone === 0) {
+      this.enterIntroCutscene();
+    } else {
+      this.resetRunState(startZone);
+      this.phase = 'playing';
+      this.audio.setCombatActive(true);
+      this.emitHudSnapshot();
+    }
+  }
+
+  public skipIntro(): void {
+    if (this.phase !== 'intro') return;
+    this.audio.playBioChirp();
+    this.finishIntroToGameplay();
+  }
+
+  private enterIntroCutscene(): void {
+    this.clearRunEntities();
+    this.phase = 'intro';
+    this.introTime = 0;
+    this.introStage = 0;
+    this.introSubtitle =
+      'Raka terbaring lemah akibat patogen misterius. Profesor Aris dan B.I.O.-7 bersiap melakukan ekspedisi mikro!';
+    this.introShrinkFlashed = false;
+    this.heldKeys.clear();
+    this.mouseDown = false;
+    this.audio.setCombatActive(false);
+    this.audio.setThrustIntensity(0);
+
+    this.applyLabSceneSetup();
+    const pad = this.labWorld.padPosition;
+    this.podRig.root.position.set(pad.x, 0.82, pad.z);
+    this.podRig.root.rotation.set(0, Math.PI * 0.65, 0);
+    this.podRig.root.scale.setScalar(0.85);
+
+    this.robotRig.root.position.set(1.5, 1.35, 0.4);
+    this.robotRig.root.scale.setScalar(1.0);
+    this.robotRig.root.rotation.set(0, -Math.PI * 0.45, 0);
+
+    this.camera.position.set(0.3, 2.0, 4.8);
+    this.camera.lookAt(1.8, 1.1, 0);
+    this.emitHudSnapshot();
+  }
+
+  private updateIntroCutscene(dt: number): void {
+    this.introTime += dt;
+    this.labWorld.update(dt, this.animTime, this.introTime, 'intro');
+    this.updateParticles(dt);
+
+    const t = this.introTime;
+    const pad = this.labWorld.padPosition;
+    const bed = this.labWorld.bedPosition;
+
+    if (t < 2.8) {
+      // Stage 0: Professor & B.I.O.-7 examine sick Raka resting on clinic bed
+      this.introStage = 0;
+      this.introSubtitle =
+        'Raka terbaring lemah akibat patogen misterius. Profesor Aris dan B.I.O.-7 segera memindai tubuhnya!';
+
+      this.podRig.root.position.set(pad.x, 0.82 + Math.sin(this.animTime * 2) * 0.04, pad.z);
+      this.podRig.root.rotation.set(0, Math.PI * 0.65, 0);
+      this.podRig.root.scale.setScalar(0.85);
+
+      this.robotRig.root.position.set(1.55, 1.35 + Math.sin(this.animTime * 3) * 0.08, 0.45);
+      this.robotRig.root.scale.setScalar(1.0);
+      this.robotRig.root.rotation.y = -Math.PI * 0.48;
+      this.robotRig.scannerRing.rotation.z += dt * 3.5;
+
+      _camGoal.set(0.7, 1.85, 4.2);
+      _camLook.set(1.75, 1.0, -0.1);
+    } else if (t < 6.4) {
+      // Stage 1: Professor boards Nano-Pod on Shrink Pad -> Shrink Ray fires and shrinks Pod & Robot!
+      this.introStage = 1;
+      this.introSubtitle =
+        t < 5.0
+          ? 'Profesor Aris berlari menaiki Pesawat Mikro Nano-Pod di atas landasan kuantum!'
+          : 'Sinar Pengecil Kuantum aktif! Nano-Pod & B.I.O.-7 menyusut ke ukuran mikroskopis!';
+
+      if (t >= 5.0 && !this.introShrinkFlashed) {
+        this.introShrinkFlashed = true;
+        this.audio.playPickup();
+        this.haptics.pulseGateOpen();
+        this.spawnParticleBurst(new THREE.Vector3(pad.x, 1.0, pad.z), 0x22d3ee, 36, 7);
+      }
+
+      const shrinkProg = t >= 5.0 ? THREE.MathUtils.clamp((t - 5.0) / 1.3, 0, 1) : 0;
+      const podScale = THREE.MathUtils.lerp(0.85, 0.14, shrinkProg);
+      const robScale = THREE.MathUtils.lerp(1.0, 0.2, shrinkProg);
+
+      this.podRig.root.position.set(pad.x, 0.82 + shrinkProg * 0.9, pad.z);
+      this.podRig.root.rotation.y += dt * (shrinkProg > 0 ? 4.5 : 0.4);
+      this.podRig.root.scale.setScalar(podScale);
+
+      this.robotRig.root.position.x = THREE.MathUtils.damp(
+        this.robotRig.root.position.x,
+        pad.x + 0.72,
+        4.5,
+        dt
+      );
+      this.robotRig.root.position.y = THREE.MathUtils.damp(
+        this.robotRig.root.position.y,
+        1.4 + shrinkProg * 0.45,
+        4.5,
+        dt
+      );
+      this.robotRig.root.position.z = THREE.MathUtils.damp(
+        this.robotRig.root.position.z,
+        pad.z + 0.35,
+        4.5,
+        dt
+      );
+      this.robotRig.root.scale.setScalar(robScale);
+      this.robotRig.scannerRing.rotation.z += dt * 4.5;
+
+      _camGoal.set(-1.1, 1.95, 4.4);
+      _camLook.set(pad.x + 0.4, 1.05, pad.z);
+    } else if (t < 9.1) {
+      // Stage 2: Tiny Nano-Pod & B.I.O.-7 soar across the lab directly into Raka's mouth!
+      this.introStage = 2;
+      this.introSubtitle =
+        'Meluncur menuju mulut Raka! Ekspedisi membasmi virus dimulai dari rongga mulut!';
+
+      const flyT = THREE.MathUtils.clamp((t - 6.4) / 2.5, 0, 1);
+      const easeFly = flyT * flyT * (3 - 2 * flyT);
+
+      // Raka's mouth world coordinate on reclined bed
+      const mouthX = bed.x - 0.12;
+      const mouthY = 1.08;
+      const mouthZ = bed.z - 0.52;
+
+      const px = THREE.MathUtils.lerp(pad.x, mouthX, easeFly);
+      const py = THREE.MathUtils.lerp(1.72, mouthY, easeFly) + Math.sin(flyT * Math.PI) * 0.85;
+      const pz = THREE.MathUtils.lerp(pad.z, mouthZ, easeFly);
+
+      this.podRig.root.position.set(px, py, pz);
+      this.podRig.root.scale.setScalar(0.14);
+      this.podRig.root.lookAt(mouthX, mouthY, mouthZ);
+
+      this.robotRig.root.position.set(px + 0.28, py + 0.14, pz + 0.22);
+      this.robotRig.root.scale.setScalar(0.18);
+      this.robotRig.scannerRing.rotation.z += dt * 6;
+
+      _camGoal.set(THREE.MathUtils.lerp(-0.4, 1.3, easeFly), 1.9, THREE.MathUtils.lerp(4.2, 2.35, easeFly));
+      _camLook.set(px, py - 0.05, pz);
+    } else {
+      this.finishIntroToGameplay();
+      return;
+    }
+
+    this.camera.position.x = THREE.MathUtils.damp(this.camera.position.x, _camGoal.x, 4.2, dt);
+    this.camera.position.y = THREE.MathUtils.damp(this.camera.position.y, _camGoal.y, 4.2, dt);
+    this.camera.position.z = THREE.MathUtils.damp(this.camera.position.z, _camGoal.z, 4.2, dt);
+    this.camera.lookAt(_camLook);
+
+    this.hudSyncTimer += dt;
+    if (this.hudSyncTimer >= 0.08) {
+      this.hudSyncTimer = 0;
+      this.emitHudSnapshot();
+    }
+  }
+
+  private finishIntroToGameplay(): void {
+    this.resetRunState(0);
     this.phase = 'playing';
     this.audio.setCombatActive(true);
+    this.haptics.pulseBoost();
     this.emitHudSnapshot();
   }
 
@@ -534,21 +814,28 @@ export class NanoMedikaEngine {
     this.audio.init();
     this.audio.playKonamiChime();
     this.podState.pos.z = ANUS_EXIT_Z;
-    this.currentZone = 5;
+    this.currentZone = 9;
     this.bossDefeated = true;
-    this.score = Math.max(this.score, 6400);
-    this.kills = Math.max(this.kills, 28);
-    this.elapsedSeconds = Math.max(this.elapsedSeconds, 95);
+    this.score = Math.max(this.score, 9600);
+    this.kills = Math.max(this.kills, 45);
+    this.elapsedSeconds = Math.max(this.elapsedSeconds, 145);
     this.enterEndingCutscene();
   }
 
   public setPhase(phase: GamePhase): void {
     this.phase = phase;
     this.audio.setCombatActive(phase === 'playing');
+    if (phase === 'title') {
+      this.clearRunEntities();
+      this.applyLabSceneSetup();
+    }
     if (phase !== 'playing') {
       this.lockRingGroup.visible = false;
       this.lockedTargetSnap.active = false;
       this.lockedTargetId = null;
+      this.mobileMoveX = 0;
+      this.mobileMoveZ = 0;
+      this.mobileFiring = false;
     }
     if (phase === 'paused') {
       this.heldKeys.clear();
@@ -560,6 +847,7 @@ export class NanoMedikaEngine {
   public selectWeapon(id: WeaponId): void {
     this.activeWeapon = id;
     this.audio.playBioChirp();
+    this.haptics.pulsePickup();
     this.emitHudSnapshot();
   }
 
@@ -608,36 +896,45 @@ export class NanoMedikaEngine {
 
     const c = new THREE.Vector3();
 
-    // Spawn Zona 1: Rongga Mulut (6 Rhinovirus-Alpha)
-    const z1Positions = [-24, -42, -60, -78, -96, -114];
-    z1Positions.forEach((z, idx) => {
+    // Zona 1 (index 0): Rongga Mulut (-24..-118)
+    const z0Positions = [-24, -42, -62, -80, -98, -116];
+    z0Positions.forEach((z, idx) => {
       getTunnelCenterAtZ(z, c);
       const ang = idx * 1.4;
-      const offset = new THREE.Vector3(Math.cos(ang) * 3.8, Math.sin(ang) * 2.5, 0);
-      this.spawnEnemy('rhino', 0, c.clone().add(offset));
+      this.spawnEnemy('rhino', 0, c.clone().add(new THREE.Vector3(Math.cos(ang) * 3.8, Math.sin(ang) * 2.5, 0)));
     });
 
-    // Spawn Zona 2: Aliran Darah (7 Bakteri Spore-Drifter)
-    const z2Positions = [-150, -174, -198, -222, -246, -270, -298];
+    // Zona 2 (index 1): Esofagus & Cabang Bronkus (-175..-435)
+    const z1Positions = [-175, -218, -262, -305, -348, -395, -432];
+    z1Positions.forEach((z, idx) => {
+      getTunnelCenterAtZ(z, c);
+      const laneSide = idx % 2 === 0 ? -4.4 : 4.4;
+      this.spawnEnemy(
+        idx % 3 === 0 ? 'spore' : 'rhino',
+        1,
+        c.clone().add(new THREE.Vector3(laneSide, Math.sin(idx * 1.7) * 2.4, 0))
+      );
+    });
+
+    // Zona 3 (index 2): Aliran Darah Arteri (-515..-870)
+    const z2Positions = [-515, -568, -625, -680, -735, -798, -860];
     z2Positions.forEach((z, idx) => {
       getTunnelCenterAtZ(z, c);
-      const ang = idx * 1.8;
-      const offset = new THREE.Vector3(Math.cos(ang) * 4.2, Math.sin(ang) * 2.8, 0);
-      this.spawnEnemy('spore', 1, c.clone().add(offset));
+      const ang = idx * 1.75;
+      this.spawnEnemy('spore', 2, c.clone().add(new THREE.Vector3(Math.cos(ang) * 4.4, Math.sin(ang) * 2.9, 0)));
     });
 
-    // Spawn Zona 3: Sistem Saraf Pusat (7 Neuro-Parasit Vektor)
-    const z3Positions = [-355, -382, -408, -434, -460, -488, -512];
+    // Zona 4 (index 3): Sistem Saraf Pusat (-960..-1375)
+    const z3Positions = [-960, -1025, -1088, -1152, -1218, -1288, -1358];
     z3Positions.forEach((z, idx) => {
       getTunnelCenterAtZ(z, c);
       const ang = idx * 1.65;
-      const offset = new THREE.Vector3(Math.cos(ang) * 4.6, Math.sin(ang) * 3.2, 0);
-      this.spawnEnemy('neuro', 2, c.clone().add(offset));
+      this.spawnEnemy('neuro', 3, c.clone().add(new THREE.Vector3(Math.cos(ang) * 4.8, Math.sin(ang) * 3.2, 0)));
     });
 
-    // Spawn Zona 4: Boss "Chrono-Virus Omega" & 3 Shield Nodes in Cardiac Chamber
-    getTunnelCenterAtZ(-665, c);
-    const boss = this.spawnEnemy('boss', 3, c.clone());
+    // Zona 5 (index 4): Boss "Chrono-Virus Omega" & 3 Shield Nodes di Ruang Jantung (-1605)
+    getTunnelCenterAtZ(-1605, c);
+    const boss = this.spawnEnemy('boss', 4, c.clone());
     this.bossEntity = boss;
 
     for (let i = 0; i < 3; i++) {
@@ -657,13 +954,13 @@ export class NanoMedikaEngine {
       const nodeEntity: EnemyEntity = {
         id: this.nextEnemyId++,
         kind: 'neuro',
-        zone: 3,
+        zone: 4,
         mesh: nodeMesh,
         pos: nodePos.clone(),
         vel: new THREE.Vector3(),
         homePos: c.clone(),
-        hp: 110,
-        maxHp: 110,
+        hp: 115,
+        maxHp: 115,
         radius: 1.5,
         hitFlash: 0,
         frozenTimer: 0,
@@ -677,12 +974,13 @@ export class NanoMedikaEngine {
       this.bossShieldNodes.push(nodeEntity);
     }
 
-    // Zone Membrane Gates (Zones 0..2 block until pathogens cleared; Zone 3 Heart gate opens after Boss defeat!)
+    // Zone Membrane Gates for Story Zones 0..4
     const gateZList: { zone: ZoneIndex; z: number; color: number }[] = [
-      { zone: 0, z: -126, color: 0x84cc16 },
-      { zone: 1, z: -324, color: 0xf97316 },
-      { zone: 2, z: -534, color: 0xa855f7 },
-      { zone: 3, z: -754, color: 0xf43f5e },
+      { zone: 0, z: -134, color: 0x84cc16 },
+      { zone: 1, z: -474, color: 0xf472b6 },
+      { zone: 2, z: -914, color: 0xf97316 },
+      { zone: 3, z: -1414, color: 0xa855f7 },
+      { zone: 4, z: -1774, color: 0xf43f5e },
     ];
 
     gateZList.forEach(({ zone, z, color }) => {
@@ -711,7 +1009,7 @@ export class NanoMedikaEngine {
       rhino: { hp: 70, r: 1.35 },
       spore: { hp: 115, r: 1.45 },
       neuro: { hp: 145, r: 1.65 },
-      boss: { hp: 720, r: 3.8 },
+      boss: { hp: 760, r: 3.8 },
     };
 
     const entity: EnemyEntity = {
@@ -737,16 +1035,20 @@ export class NanoMedikaEngine {
   private resetRunState(startZone: ZoneIndex = 0): void {
     const startZMap: Record<ZoneIndex, number> = {
       0: 2,
-      1: -136,
-      2: -336,
-      3: -546,
-      4: -768,
-      5: -2485,
+      1: -145,
+      2: -486,
+      3: -928,
+      4: -1428,
+      5: -1788,
+      6: -2428,
+      7: -3128,
+      8: -4428,
+      9: -6048,
     };
     const startZ = startZMap[startZone];
     getTunnelCenterAtZ(startZ, _v1);
 
-    // Restore Anatomical Tunnel View & Reset Lab Ending World
+    // Restore Anatomical Tunnel View
     this.world.group.visible = true;
     this.labWorld.group.visible = false;
     this.labWorld.profRig.root.visible = false;
@@ -777,16 +1079,7 @@ export class NanoMedikaEngine {
 
     this.hull = 100;
     this.energy = 100;
-    this.patientVitality =
-      startZone === 0
-        ? 58
-        : startZone === 1
-        ? 68
-        : startZone === 2
-        ? 78
-        : startZone === 3
-        ? 86
-        : 96;
+    this.patientVitality = Math.min(98, 54 + startZone * 5);
     this.score = 0;
     this.kills = 0;
     this.savedKillsCheckpoint = 0;
@@ -802,8 +1095,8 @@ export class NanoMedikaEngine {
     this.invulnTimer = 0;
     this.hitstopTimer = 0;
     this.shakeIntensity = 0;
-    this.bossDefeated = startZone >= 4;
-    this.nextEndlessWaveZ = startZone >= 4 ? Math.min(-810, startZ - 65) : -810;
+    this.bossDefeated = startZone >= 5;
+    this.nextEndlessWaveZ = startZone >= 5 ? Math.min(-1835, startZ - 65) : -1835;
     this.endingTime = 0;
     this.endingStage = 0;
     this.endingSubtitle = '';
@@ -814,7 +1107,6 @@ export class NanoMedikaEngine {
 
     this.setupRunEntities();
 
-    // If starting from a saved zone checkpoint, open prior gates and clear prior enemies
     if (startZone > 0) {
       for (const e of this.enemies) {
         if (e.zone < startZone) {
@@ -835,7 +1127,7 @@ export class NanoMedikaEngine {
     const tick = () => {
       if (this.disposed) return;
       const rawDt = this.clock.getDelta();
-      const dt = Math.min(rawDt, 0.05); // Clamp frame delta time
+      const dt = Math.min(rawDt, 0.05);
 
       this.update(dt);
       this.render();
@@ -876,20 +1168,22 @@ export class NanoMedikaEngine {
 
   private update(dt: number): void {
     this.animTime += dt;
-
-    // Heartbeat cadence (~72 bpm -> ~1.2 Hz)
     this.heartBeatPhase += dt * 3.8;
     const hbWave = Math.pow(Math.max(0, Math.sin(this.heartBeatPhase)), 6);
 
-    // Always animate organic world (for title showcase + active play)
     if (this.phase === 'ending' || this.phase === 'victory') {
-      this.audio.updateMusic(dt, 'ending', 5);
+      this.audio.updateMusic(dt, 'ending', 9);
       this.updateEndingCutscene(dt);
       this.justPressedKeys.clear();
       return;
     }
 
-    this.world.update(dt, this.animTime, this.heartBeatPhase, this.podState.pos.z);
+    if (this.phase === 'intro') {
+      this.audio.updateMusic(dt, 'idle', 0);
+      this.updateIntroCutscene(dt);
+      this.justPressedKeys.clear();
+      return;
+    }
 
     if (this.phase === 'title') {
       this.updateTitleShowcase(dt);
@@ -897,12 +1191,13 @@ export class NanoMedikaEngine {
       return;
     }
 
+    this.world.update(dt, this.animTime, this.heartBeatPhase, this.podState.pos.z);
+
     if (this.phase !== 'playing') {
       this.justPressedKeys.clear();
       return;
     }
 
-    // Simulation hitstop on heavy impacts
     if (this.hitstopTimer > 0) {
       this.hitstopTimer -= dt;
       this.shakeIntensity = Math.max(0, this.shakeIntensity - dt * 2.2);
@@ -927,24 +1222,24 @@ export class NanoMedikaEngine {
       this.bioMessageTimer -= dt;
     }
 
-    // Regenerate energy smoothly
-    this.energy = Math.min(this.maxEnergy, this.energy + 11.5 * dt);
+    this.energy = Math.min(this.maxEnergy, this.energy + 12.0 * dt);
 
-    // Context-aware biological ambient audio per organ zone + procedural action synth music
-    const speedRatio = Math.min(1, this.podState.vel.length() / 38);
+    // Context-aware biological ambient audio + synth action music
+    const speedRatio = Math.min(1, this.podState.vel.length() / 42);
     this.audio.updateOrganAmbience(this.currentZone, speedRatio, dt, hbWave);
     this.audio.updateMusic(dt, 'playing', this.currentZone);
 
-    if (this.currentZone === 3 || this.currentZone === 1) {
+    if (this.currentZone === 4 || this.currentZone === 2) {
       if (hbWave > 0.82 && !this.lastHeartBeatPulse) {
         this.lastHeartBeatPulse = true;
-        this.audio.playHeartbeat(this.currentZone === 3 ? 1.15 : 0.45);
+        this.audio.playHeartbeat(this.currentZone === 4 ? 1.15 : 0.45);
       } else if (hbWave < 0.3) {
         this.lastHeartBeatPulse = false;
       }
     }
 
-    // 1. Gather Movement Inputs
+    // 1. Gather Movement Inputs (Keyboard + Scroll Wheel + Mouse + Mobile Virtual Stick)
+    this.wheelDriveZ *= Math.exp(-5.0 * dt);
     _thrust.set(0, 0, 0);
     if (this.heldKeys.has('KeyW') || this.heldKeys.has('ArrowUp')) _thrust.z -= 1;
     if (this.heldKeys.has('KeyS') || this.heldKeys.has('ArrowDown')) _thrust.z += 1;
@@ -953,14 +1248,19 @@ export class NanoMedikaEngine {
     if (this.heldKeys.has('KeyQ')) _thrust.y += 1;
     if (this.heldKeys.has('KeyE')) _thrust.y -= 1;
 
-    // Gentle mouse steering assist so vertical & lateral flight feels natural
+    _thrust.z += this.wheelDriveZ;
+    _thrust.x += this.mobileMoveX;
+    _thrust.z += this.mobileMoveZ;
+
     _thrust.x += this.mouseNdc.x * 0.25;
     _thrust.y += this.mouseNdc.y * 0.35;
 
     if (_thrust.lengthSq() > 1) _thrust.normalize();
 
-    // Dash / Boost on Space
-    if (this.justPressedKeys.has('Space') && this.boostCooldown <= 0) {
+    // Dash / Boost on Space or Mobile Boost button
+    const wantsBoost = this.justPressedKeys.has('Space') || this.mobilePendingBoost;
+    this.mobilePendingBoost = false;
+    if (wantsBoost && this.boostCooldown <= 0) {
       this.boostCooldown = 2.4;
       this.boostActiveTimer = 0.28;
       this.invulnTimer = Math.max(this.invulnTimer, 0.35);
@@ -969,29 +1269,42 @@ export class NanoMedikaEngine {
       _v1.normalize().multiplyScalar(28);
       this.podState.vel.add(_v1);
       this.audio.playBoost();
+      this.haptics.pulseBoost();
       this.spawnParticleBurst(this.podState.pos, 0x38bdf8, 12, 7);
     }
 
-    this.audio.setThrustIntensity(Math.min(1, _thrust.length() + (this.boostActiveTimer > 0 ? 0.8 : 0)));
+    this.audio.setThrustIntensity(
+      Math.min(1, _thrust.length() + (this.boostActiveTimer > 0 ? 0.8 : 0))
+    );
 
-    // 2. Step Rigid-Body + Fluid Physics
+    // 2. Step Rigid-Body + Fluid + Branch Bifurcation Pillar Physics
     const physRes = stepPodPhysics(
       this.podState,
       _thrust,
       dt,
       hbWave,
-      this.world.bloodCells
+      this.world.bloodCells,
+      this.world.activeForkSepta
     );
 
+    if (physRes.obstacleImpactSpeed > 1.5) {
+      this.audio.playBounce();
+      this.haptics.pulseObstacleHit();
+      this.shakeIntensity = Math.min(0.5, physRes.obstacleImpactSpeed * 0.03);
+    }
     if (physRes.wallImpactSpeed > 6.5) {
       this.audio.playBounce();
+      this.haptics.pulseWallImpact(physRes.wallImpactSpeed);
       this.shakeIntensity = Math.min(0.45, physRes.wallImpactSpeed * 0.025);
     }
-    if (physRes.cellBumps > 0 && Math.random() < 0.35) {
-      this.audio.playBounce();
+    if (physRes.cellBumps > 0) {
+      this.haptics.pulseCellBump();
+      if (Math.random() < 0.35) {
+        this.audio.playBounce();
+      }
     }
 
-    // Enforce closed zone gates (cannot pass beyond closed gate)
+    // Enforce closed zone gates
     for (const gate of this.gateMeshes) {
       if (!gate.open && this.podState.pos.z < gate.z + 1.6) {
         this.podState.pos.z = gate.z + 1.6;
@@ -1000,8 +1313,16 @@ export class NanoMedikaEngine {
     }
 
     // 3. Smooth Damped Pod Banking & Visual Rig Update
-    const targetRoll = THREE.MathUtils.clamp(-this.podState.vel.x * 0.042 - this.mouseNdc.x * 0.22, -0.55, 0.55);
-    const targetPitch = THREE.MathUtils.clamp(this.podState.vel.y * 0.032 + this.mouseNdc.y * 0.28, -0.45, 0.45);
+    const targetRoll = THREE.MathUtils.clamp(
+      -this.podState.vel.x * 0.042 - this.mouseNdc.x * 0.22,
+      -0.55,
+      0.55
+    );
+    const targetPitch = THREE.MathUtils.clamp(
+      this.podState.vel.y * 0.032 + this.mouseNdc.y * 0.28,
+      -0.45,
+      0.45
+    );
     const targetYaw = THREE.MathUtils.clamp(-this.mouseNdc.x * 0.28, -0.45, 0.45);
 
     this.podState.roll = THREE.MathUtils.damp(this.podState.roll, targetRoll, 9, dt);
@@ -1009,12 +1330,19 @@ export class NanoMedikaEngine {
     this.podState.yaw = THREE.MathUtils.damp(this.podState.yaw, targetYaw, 9, dt);
 
     this.podRig.root.position.copy(this.podState.pos);
-    this.podRig.root.rotation.set(this.podState.pitch, this.podState.yaw, this.podState.roll, 'YXZ');
+    this.podRig.root.rotation.set(
+      this.podState.pitch,
+      this.podState.yaw,
+      this.podState.roll,
+      'YXZ'
+    );
 
-    // Recoil cannons & pulse thrusters
     this.podRig.cannonLeft.position.z = -1.05 + this.cannonRecoil * 0.28;
     this.podRig.cannonRight.position.z = -1.05 + this.cannonRecoil * 0.28;
-    const thrustScale = 0.75 + Math.min(1.4, this.podState.vel.length() * 0.05) + (this.boostActiveTimer > 0 ? 0.9 : 0);
+    const thrustScale =
+      0.75 +
+      Math.min(1.4, this.podState.vel.length() * 0.05) +
+      (this.boostActiveTimer > 0 ? 0.9 : 0);
     this.podRig.thrusterGlowLeft.scale.set(1, 1, thrustScale);
     this.podRig.thrusterGlowRight.scale.set(1, 1, thrustScale);
     this.podRig.professorHead.rotation.y = THREE.MathUtils.damp(
@@ -1024,13 +1352,12 @@ export class NanoMedikaEngine {
       dt
     );
 
-    // 4. Update Assistant Robot B.I.O.-7 Spring Orbit
+    // 4. Assistant Robot B.I.O.-7 Spring Orbit
     _v1.set(
       this.podState.pos.x + 2.1 + Math.cos(this.animTime * 1.8) * 0.45,
       this.podState.pos.y + 1.15 + Math.sin(this.animTime * 2.4) * 0.35,
       this.podState.pos.z - 0.8
     );
-    // Keep robot inside tunnel wall
     getTunnelCenterAtZ(_v1.z, _v2);
     const robMaxR = getTunnelRadiusAtZ(_v1.z) - 1.2;
     const rdx = _v1.x - _v2.x;
@@ -1050,10 +1377,12 @@ export class NanoMedikaEngine {
     this.robotRig.wingRight.rotation.z = -0.22 - Math.sin(this.animTime * 6) * 0.12;
 
     // 5. Weapons & B.I.O.-7 Assist Firing
-    if ((this.mouseDown || this.heldKeys.has('KeyJ')) && this.fireCooldown <= 0) {
+    if ((this.mouseDown || this.heldKeys.has('KeyJ') || this.mobileFiring) && this.fireCooldown <= 0) {
       this.firePlayerWeapon();
     }
-    if ((this.rightMouseDown || this.justPressedKeys.has('KeyF')) && this.bioAssistCooldown <= 0) {
+    const wantsAssist = this.justPressedKeys.has('KeyF') || this.mobilePendingAssist;
+    this.mobilePendingAssist = false;
+    if (wantsAssist && this.bioAssistCooldown <= 0) {
       this.triggerBioAssist();
     }
 
@@ -1064,6 +1393,7 @@ export class NanoMedikaEngine {
       this.bioMessage = ZONES[newZone].bioTip;
       this.bioMessageTimer = 8;
       this.audio.playBioChirp();
+      this.haptics.pulseGateOpen();
       this.persistProgress(false);
     }
 
@@ -1099,7 +1429,6 @@ export class NanoMedikaEngine {
       this.podState.pos.y * 0.72 + _v2.y * 0.28 + 1.85,
       this.podState.pos.z + 6.8
     );
-    // Keep camera inside tunnel
     getTunnelCenterAtZ(_camGoal.z, _v3);
     const camMaxR = getTunnelRadiusAtZ(_camGoal.z) - 1.2;
     const cdx = _camGoal.x - _v3.x;
@@ -1115,8 +1444,9 @@ export class NanoMedikaEngine {
     this.camera.position.z = THREE.MathUtils.damp(this.camera.position.z, _camGoal.z, 10.5, dt);
 
     if (this.shakeIntensity > 0.001) {
-      this.camera.position.x += (Math.random() - 0.5) * this.shakeIntensity;
-      this.camera.position.y += (Math.random() - 0.5) * this.shakeIntensity;
+      const trauma = this.shakeIntensity * this.shakeIntensity;
+      this.camera.position.x += (Math.random() - 0.5) * (this.shakeIntensity * 0.9 + trauma * 0.9);
+      this.camera.position.y += (Math.random() - 0.5) * (this.shakeIntensity * 0.9 + trauma * 0.9);
     }
 
     _camLook.set(
@@ -1125,13 +1455,18 @@ export class NanoMedikaEngine {
       this.podState.pos.z - 18
     );
     this.camera.lookAt(_camLook);
+    if (this.shakeIntensity > 0.04) {
+      this.camera.rotation.z += (Math.random() - 0.5) * this.shakeIntensity * 0.14;
+    }
     this.camera.updateMatrixWorld();
 
-    // Move keyLight along with Pod
-    this.keyLight.position.set(this.podState.pos.x + 8, this.podState.pos.y + 12, this.podState.pos.z + 10);
+    this.keyLight.position.set(
+      this.podState.pos.x + 8,
+      this.podState.pos.y + 12,
+      this.podState.pos.z + 10
+    );
     this.keyLight.target.position.copy(this.podState.pos);
 
-    // Update 3D + Screen-Space Target Lock-On Crosshair
     this.updateTargetLock(dt);
 
     // 9. Throttled HUD Sync (12 Hz)
@@ -1145,20 +1480,33 @@ export class NanoMedikaEngine {
   }
 
   private updateTitleShowcase(dt: number): void {
-    // Cinematic orbital pan around Nano-Pod & B.I.O.-7 at the Oral Entry
-    const t = this.animTime;
-    this.podRig.root.position.set(0, Math.sin(t * 1.4) * 0.28, 2);
-    this.podRig.root.rotation.set(Math.sin(t * 0.9) * 0.06, Math.sin(t * 0.5) * 0.14, Math.cos(t * 1.1) * 0.08);
-    this.podRig.thrusterGlowLeft.scale.set(1, 1, 1.0 + Math.sin(t * 10) * 0.15);
-    this.podRig.thrusterGlowRight.scale.set(1, 1, 1.0 + Math.sin(t * 10) * 0.15);
+    // Live 3D Clinic Laboratory Showcase (Profesor Aris, B.I.O.-7, Pod & Sick Raka)
+    this.labWorld.update(dt, this.animTime, 0, 'title');
 
-    this.robotRig.root.position.set(2.1, 1.1 + Math.cos(t * 2.1) * 0.25, 1.2);
-    this.robotRig.scannerRing.rotation.z += dt * 2.2;
+    const pad = this.labWorld.padPosition;
+    this.podRig.root.position.set(pad.x, 0.86 + Math.sin(this.animTime * 1.6) * 0.08, pad.z);
+    this.podRig.root.rotation.set(
+      Math.sin(this.animTime * 0.9) * 0.04,
+      Math.PI * 0.62 + Math.sin(this.animTime * 0.4) * 0.12,
+      Math.cos(this.animTime * 1.1) * 0.04
+    );
+    this.podRig.root.scale.setScalar(0.85);
+    this.podRig.thrusterGlowLeft.scale.set(1, 1, 0.8 + Math.sin(this.animTime * 8) * 0.1);
+    this.podRig.thrusterGlowRight.scale.set(1, 1, 0.8 + Math.sin(this.animTime * 8) * 0.1);
 
-    const orbitAngle = Math.sin(t * 0.32) * 0.55;
-    _camGoal.set(Math.sin(orbitAngle) * 5.8, 1.6 + Math.cos(t * 0.4) * 0.65, 2 + Math.cos(orbitAngle) * 5.8);
+    this.robotRig.root.position.set(
+      pad.x + 0.72,
+      1.78 + Math.cos(this.animTime * 2.2) * 0.1,
+      pad.z + 0.82
+    );
+    this.robotRig.root.scale.setScalar(1.0);
+    this.robotRig.root.rotation.y = -Math.PI * 0.35;
+    this.robotRig.scannerRing.rotation.z += dt * 2.4;
+
+    const orbit = Math.sin(this.animTime * 0.24) * 0.75;
+    _camGoal.set(0.35 + orbit, 2.05 + Math.cos(this.animTime * 0.35) * 0.15, 5.1);
     this.camera.position.lerp(_camGoal, 1 - Math.exp(-3 * dt));
-    this.camera.lookAt(0, 0.2, -3.5);
+    this.camera.lookAt(0.45, 1.05, -0.3);
   }
 
   private updateTargetLock(dt: number): void {
@@ -1171,7 +1519,6 @@ export class NanoMedikaEngine {
     for (let i = 0; i < this.enemies.length; i++) {
       const e = this.enemies[i];
       if (e.hp <= 0) continue;
-      // Skip enemies behind the Pod
       if (e.pos.z > this.podState.pos.z + 2) continue;
 
       const dist = e.pos.distanceTo(this.podState.pos);
@@ -1181,7 +1528,7 @@ export class NanoMedikaEngine {
       if (_v1.z < -1 || _v1.z > 1) continue;
 
       const ndcDist = Math.hypot(_v1.x - this.mouseNdc.x, _v1.y - this.mouseNdc.y);
-      if (ndcDist <= 0.42) {
+      if (ndcDist <= 0.44) {
         const rankScore = ndcDist + dist * 0.0022;
         if (rankScore < bestScore) {
           bestScore = rankScore;
@@ -1197,6 +1544,7 @@ export class NanoMedikaEngine {
       if (this.lockedTargetId !== bestEnemy.id) {
         this.lockedTargetId = bestEnemy.id;
         this.audio.playLockOn();
+        this.haptics.pulseLockOn();
       }
 
       this.lockRingGroup.visible = true;
@@ -1236,7 +1584,11 @@ export class NanoMedikaEngine {
       const locked = this.enemies.find((e) => e.id === this.lockedTargetId && e.hp > 0);
       if (locked) {
         _v3.copy(locked.pos).project(this.camera);
-        if (_v3.z >= -1 && _v3.z <= 1 && Math.hypot(_v3.x - this.mouseNdc.x, _v3.y - this.mouseNdc.y) <= 0.34) {
+        if (
+          _v3.z >= -1 &&
+          _v3.z <= 1 &&
+          Math.hypot(_v3.x - this.mouseNdc.x, _v3.y - this.mouseNdc.y) <= 0.36
+        ) {
           out.copy(locked.pos);
           return out;
         }
@@ -1251,7 +1603,6 @@ export class NanoMedikaEngine {
   private firePlayerWeapon(): void {
     const spec = WEAPONS[this.activeWeapon];
     if (this.energy < spec.energyCost) {
-      // Fallback to Weapon 1 if out of energy
       this.activeWeapon = 1;
     }
 
@@ -1261,33 +1612,30 @@ export class NanoMedikaEngine {
     this.cannonRecoil = 1.0;
 
     this.getAimWorldPoint(_aimTarget);
+    this.haptics.pulseWeapon(this.activeWeapon);
 
     if (this.activeWeapon === 1) {
-      // Dual UV-C Pulse Lasers
       this.audio.playLaser();
       for (const side of [-0.68, 0.68]) {
         _v1.set(side, -0.14, -1.55).applyEuler(this.podRig.root.rotation).add(this.podState.pos);
-        _v2.subVectors(_aimTarget, _v1).normalize().multiplyScalar(78);
-        this.spawnProjectile(true, 'laser', _v1, _v2, 0.42, 26, 1.3);
+        _v2.subVectors(_aimTarget, _v1).normalize().multiplyScalar(82);
+        this.spawnProjectile(true, 'laser', _v1, _v2, 0.42, 27, 1.3);
       }
     } else if (this.activeWeapon === 2) {
-      // Cryo-Antibodi 3-orb Spread
       this.audio.playCryoBurst();
       _v1.set(0, 0, -1.6).applyEuler(this.podRig.root.rotation).add(this.podState.pos);
       const baseDir = _v2.subVectors(_aimTarget, _v1).normalize();
       for (const spread of [-0.11, 0, 0.11]) {
         _v3.copy(baseDir);
         _v3.x += spread;
-        _v3.normalize().multiplyScalar(58);
-        this.spawnProjectile(true, 'cryo', _v1, _v3, 0.68, 32, 1.5);
+        _v3.normalize().multiplyScalar(60);
+        this.spawnProjectile(true, 'cryo', _v1, _v3, 0.68, 34, 1.5);
       }
     } else {
-      // Weapon 3: Nano-Nova Shockwave Blast (immediate area pulse + forward wave orb)
       this.audio.playNanoNova();
       this.shakeIntensity = 0.35;
       this.spawnParticleBurst(this.podState.pos, 0x34d399, 26, 18);
 
-      // Area shockwave damages nearby enemies & clears enemy projectiles
       for (const proj of this.projectiles) {
         if (proj.active && !proj.fromPlayer && proj.pos.distanceTo(this.podState.pos) < 22) {
           proj.active = false;
@@ -1296,24 +1644,22 @@ export class NanoMedikaEngine {
       }
       for (const enemy of this.enemies) {
         if (enemy.hp <= 0) continue;
-        const dist = enemy.pos.distanceTo(this.podState.pos);
-        if (dist < 22) {
-          this.damageEnemy(enemy, 75, true);
+        if (enemy.pos.distanceTo(this.podState.pos) < 22) {
+          this.damageEnemy(enemy, 80, true);
         }
       }
 
-      // Also launch heavy penetrating Nova orb forward
       _v1.set(0, 0, -1.8).applyEuler(this.podRig.root.rotation).add(this.podState.pos);
-      _v2.subVectors(_aimTarget, _v1).normalize().multiplyScalar(48);
-      this.spawnProjectile(true, 'nova', _v1, _v2, 1.45, 95, 1.6);
+      _v2.subVectors(_aimTarget, _v1).normalize().multiplyScalar(50);
+      this.spawnProjectile(true, 'nova', _v1, _v2, 1.45, 98, 1.6);
     }
   }
 
   private triggerBioAssist(): void {
     this.bioAssistCooldown = 6.5;
     this.audio.playBioChirp();
+    this.haptics.pulsePickup();
 
-    // Find closest active enemy ahead
     let target: EnemyEntity | null = null;
     let bestDist = 85;
     for (const e of this.enemies) {
@@ -1328,7 +1674,8 @@ export class NanoMedikaEngine {
     if (target) {
       _v1.subVectors(target.pos, this.robotPos).normalize().multiplyScalar(72);
       this.spawnProjectile(true, 'bioAssist', this.robotPos, _v1, 0.75, 65, 1.4);
-      this.bioMessage = 'B.I.O.-7: "Tembakan bantu Cryo-Beam diluncurkan! Perisai mikro diisi ulang."';
+      this.bioMessage =
+        'B.I.O.-7: "Tembakan bantu Cryo-Beam diluncurkan! Perisai mikro diisi ulang."';
     } else {
       this.bioMessage = 'B.I.O.-7: "Pemindaian bio-energi selesai! Integritas Pod dipulihkan +12%."';
     }
@@ -1377,7 +1724,12 @@ export class NanoMedikaEngine {
     slot.mesh.visible = true;
   }
 
-  private spawnParticleBurst(pos: THREE.Vector3, colorHex: number, count: number, speed: number): void {
+  private spawnParticleBurst(
+    pos: THREE.Vector3,
+    colorHex: number,
+    count: number,
+    speed: number
+  ): void {
     let spawned = 0;
     for (let i = 0; i < this.particles.length && spawned < count; i++) {
       const p = this.particles[i];
@@ -1400,28 +1752,28 @@ export class NanoMedikaEngine {
   }
 
   private updateEndlessSpawner(): void {
-    // Stream fresh pathogen squads ahead of player throughout Endless Zone 5 (-760 .. -2480)
-    if (this.podState.pos.z > -690 || this.nextEndlessWaveZ < -2440) return;
+    // Stream pathogen squads + bio pickups throughout super-long Zones 5..8 (-1780 .. -6040)
+    if (this.podState.pos.z > -1680 || this.nextEndlessWaveZ < -5990) return;
 
-    while (this.podState.pos.z - 155 < this.nextEndlessWaveZ && this.nextEndlessWaveZ >= -2440) {
+    while (this.podState.pos.z - 165 < this.nextEndlessWaveZ && this.nextEndlessWaveZ >= -5990) {
       const waveZ = this.nextEndlessWaveZ;
       getTunnelCenterAtZ(waveZ, _v1);
+      const waveZone = getZoneIndexAtZ(waveZ);
       const squadKinds: VirusKind[] = ['rhino', 'spore', 'neuro'];
       const count = 2 + (Math.abs(Math.round(waveZ)) % 2);
       for (let k = 0; k < count; k++) {
-        const kind = squadKinds[(Math.abs(Math.round(waveZ / 95)) + k) % squadKinds.length];
-        const ang = k * 2.1 + waveZ * 0.05;
+        const kind = squadKinds[(Math.abs(Math.round(waveZ / 105)) + k) % squadKinds.length];
+        const ang = k * 2.15 + waveZ * 0.05;
         const pos = new THREE.Vector3(
-          _v1.x + Math.cos(ang) * 4.2,
+          _v1.x + Math.cos(ang) * 4.4,
           _v1.y + Math.sin(ang) * 3.1,
           waveZ - k * 14
         );
-        this.spawnEnemy(kind, 4, pos);
+        this.spawnEnemy(kind, waveZone, pos);
       }
 
-      // Periodically place a bio-capsule pickup along the endless run
-      if (Math.abs(Math.round(waveZ / 95)) % 2 === 1) {
-        const pkKind = this.hull < 70 ? 'heal' : 'energy';
+      if (Math.abs(Math.round(waveZ / 105)) % 2 === 1) {
+        const pkKind = this.hull < 72 ? 'heal' : 'energy';
         const pkMesh = createBioPickup(pkKind);
         const pkPos = new THREE.Vector3(_v1.x, _v1.y, waveZ - 26);
         pkMesh.position.copy(pkPos);
@@ -1435,7 +1787,7 @@ export class NanoMedikaEngine {
         });
       }
 
-      this.nextEndlessWaveZ -= 95;
+      this.nextEndlessWaveZ -= 105;
     }
   }
 
@@ -1450,46 +1802,32 @@ export class NanoMedikaEngine {
     this.patientVitality = 100;
     this.heldKeys.clear();
     this.mouseDown = false;
+    this.mobileMoveX = 0;
+    this.mobileMoveZ = 0;
+    this.mobileFiring = false;
     this.lockRingGroup.visible = false;
     this.lockedTargetSnap.active = false;
     this.lockedTargetId = null;
     this.audio.setCombatActive(false);
     this.audio.setThrustIntensity(0);
     this.audio.playVictory();
+    this.haptics.pulseEnemyKill(true);
     this.persistProgress(true);
 
-    // Clear anatomical entities & reveal sunlit Laboratory Ending World
     this.clearRunEntities();
-    this.world.group.visible = false;
-    this.labWorld.group.visible = true;
+    this.applyLabSceneSetup();
     this.labWorld.profRig.root.visible = false;
 
-    // Position shrunken Nano-Pod & B.I.O.-7 emerging onto the Expansion Pad
-    this.podRig.root.visible = true;
-    this.podRig.searchlight.intensity = 0; // Prevent pod spotlight from washing out lab floor
     this.podRig.root.position.set(this.labWorld.padPosition.x, 3.1, this.labWorld.padPosition.z);
     this.podRig.root.rotation.set(0.2, Math.PI * 0.65, 0);
     this.podRig.root.scale.setScalar(0.24);
 
-    this.robotRig.root.visible = true;
     this.robotRig.root.position.set(
       this.labWorld.padPosition.x + 0.55,
       3.4,
       this.labWorld.padPosition.z + 0.35
     );
     this.robotRig.root.scale.setScalar(0.32);
-
-    // Switch lighting, fog & tone exposure to balanced bright daytime laboratory (crisp contrast, zero white wash)
-    this.renderer.toneMappingExposure = 0.88;
-    this.fog.density = 0.008;
-    this.fog.color.setHex(0xcbd5e1);
-    (this.scene.background as THREE.Color).setHex(0x93c5fd);
-    this.hemiLight.color.setHex(0xe2e8f0);
-    this.hemiLight.groundColor.setHex(0x64748b);
-    this.hemiLight.intensity = 0.65;
-    this.keyLight.position.set(-3.5, 8.5, 5.5);
-    this.keyLight.target.position.set(0.4, 1.0, 0);
-    this.keyLight.intensity = 1.15;
 
     this.camera.position.set(-0.6, 2.2, 4.6);
     this.camera.lookAt(this.labWorld.padPosition.x, 1.3, this.labWorld.padPosition.z);
@@ -1498,14 +1836,13 @@ export class NanoMedikaEngine {
 
   private updateEndingCutscene(dt: number): void {
     this.endingTime += dt;
-    this.labWorld.update(dt, this.animTime, this.endingTime);
+    this.labWorld.update(dt, this.animTime, this.endingTime, 'ending');
     this.updateParticles(dt);
 
     const t = this.endingTime;
     const pad = this.labWorld.padPosition;
 
     if (t < 2.5) {
-      // Stage 0: Tiny Pod & B.I.O.-7 descend onto Expansion Pad
       this.endingStage = 0;
       const dropProgress = Math.min(1, t / 2.2);
       const podY = THREE.MathUtils.lerp(3.0, 0.75, dropProgress);
@@ -1522,7 +1859,6 @@ export class NanoMedikaEngine {
       _camGoal.set(-0.7, 1.9, 4.2);
       _camLook.set(pad.x + 0.2, 1.15, pad.z);
     } else if (t < 5.8) {
-      // Stage 1: Re-expansion flash! Profesor Aris & B.I.O.-7 return to full human/robot size and walk toward Raka
       this.endingStage = 1;
       this.endingSubtitle =
         'Sinar Re-Ekspansi aktif! Profesor Aris & B.I.O.-7 kembali ke wujud asli di laboratorium.';
@@ -1542,22 +1878,35 @@ export class NanoMedikaEngine {
       const robScale = THREE.MathUtils.damp(this.robotRig.root.scale.x, 1.12, 4.5, dt);
       this.robotRig.root.scale.setScalar(robScale);
       const targetRobX = this.labWorld.profRig.root.position.x + 0.95;
-      this.robotRig.root.position.x = THREE.MathUtils.damp(this.robotRig.root.position.x, targetRobX, 4, dt);
+      this.robotRig.root.position.x = THREE.MathUtils.damp(
+        this.robotRig.root.position.x,
+        targetRobX,
+        4,
+        dt
+      );
       this.robotRig.root.position.y = THREE.MathUtils.damp(
         this.robotRig.root.position.y,
         1.65 + Math.sin(this.animTime * 2.4) * 0.08,
         4,
         dt
       );
-      this.robotRig.root.position.z = THREE.MathUtils.damp(this.robotRig.root.position.z, 0.75, 4, dt);
-      this.robotRig.root.rotation.y = THREE.MathUtils.damp(this.robotRig.root.rotation.y, -Math.PI * 0.42, 4, dt);
+      this.robotRig.root.position.z = THREE.MathUtils.damp(
+        this.robotRig.root.position.z,
+        0.75,
+        4,
+        dt
+      );
+      this.robotRig.root.rotation.y = THREE.MathUtils.damp(
+        this.robotRig.root.rotation.y,
+        -Math.PI * 0.42,
+        4,
+        dt
+      );
       this.robotRig.scannerRing.rotation.z += dt * 2.5;
 
-      // Sweep camera into warm two-shot framing Profesor Aris, B.I.O.-7, and healthy Raka
       _camGoal.set(-0.15, 2.05, 5.15);
       _camLook.set(0.65, 1.15, -0.2);
     } else {
-      // Stage 2: Profesor Aris & B.I.O.-7 stand beside bed, waving & smiling at cured grandchild Raka
       this.endingStage = 2;
       this.endingSubtitle =
         'Raka tersenyum bugar & kembali sehat 100%! Ekspedisi Nano-Medika sukses menyelamatkan sang cucu.';
@@ -1569,7 +1918,6 @@ export class NanoMedikaEngine {
       this.robotRig.root.position.y = 1.68 + Math.sin(this.animTime * 2.6) * 0.09;
       this.robotRig.scannerRing.rotation.z += dt * 2.5;
 
-      // Gentle slow cinematic orbit framing everyone together
       const sway = Math.sin((t - 5.6) * 0.35) * 0.85;
       _camGoal.set(0.2 + sway, 2.05, 5.35);
       _camLook.set(0.35, 1.12, -0.25);
@@ -1596,8 +1944,7 @@ export class NanoMedikaEngine {
       const e = this.enemies[i];
       if (e.hp <= 0) continue;
 
-      // Despawn passed enemies far behind player in endless mode to keep performance locked
-      if (e.zone >= 4 && e.pos.z > this.podState.pos.z + 65) {
+      if (e.zone >= 5 && e.pos.z > this.podState.pos.z + 65) {
         this.scene.remove(e.mesh);
         this.enemies.splice(i, 1);
         continue;
@@ -1610,14 +1957,12 @@ export class NanoMedikaEngine {
       const slowMult = e.frozenTimer > 0 ? 0.42 : 1.0;
       if (e.frozenTimer > 0) e.frozenTimer -= dt;
 
-      // Spin sub-rings if present
       e.mesh.rotation.y += dt * 1.1 * slowMult;
       const r1 = e.mesh.getObjectByName('spinRing1');
       const r2 = e.mesh.getObjectByName('spinRing2');
       if (r1) r1.rotation.x += dt * 2.2 * slowMult;
       if (r2) r2.rotation.y -= dt * 2.6 * slowMult;
 
-      // Orbit boss shield nodes
       if (e.isBossShieldNode && this.bossEntity && e.shieldOrbitAngle !== undefined) {
         e.shieldOrbitAngle += dt * 1.15 * slowMult;
         e.pos.set(
@@ -1627,12 +1972,10 @@ export class NanoMedikaEngine {
         );
         e.mesh.position.copy(e.pos);
       } else if (e.kind === 'boss') {
-        // Boss hovers menacingly inside Cardiac Chamber
         e.pos.x = e.homePos.x + Math.sin(this.animTime * 0.85) * 6.5;
         e.pos.y = e.homePos.y + Math.cos(this.animTime * 1.1) * 3.8;
         e.mesh.position.copy(e.pos);
       } else {
-        // Regular enemies bob & strafe within their tunnel sector
         const distToPod = e.pos.distanceTo(this.podState.pos);
         if (distToPod < 48) {
           _v1.subVectors(this.podState.pos, e.pos).normalize();
@@ -1640,8 +1983,11 @@ export class NanoMedikaEngine {
           if (distToPod > 8.5) {
             e.vel.lerp(_v1.multiplyScalar(chaseSpeed * slowMult), 2.2 * dt);
           } else {
-            // Orbit-strafe
-            e.vel.set(Math.cos(this.animTime * 2 + e.id) * 4.5, Math.sin(this.animTime * 2.3 + e.id) * 3.2, 0);
+            e.vel.set(
+              Math.cos(this.animTime * 2 + e.id) * 4.5,
+              Math.sin(this.animTime * 2.3 + e.id) * 3.2,
+              0
+            );
           }
         } else {
           e.vel.set(
@@ -1652,7 +1998,6 @@ export class NanoMedikaEngine {
         }
         e.pos.addScaledVector(e.vel, dt);
 
-        // Constrain enemy inside tunnel wall
         getTunnelCenterAtZ(e.pos.z, _v2);
         const maxR = Math.max(1.5, getTunnelRadiusAtZ(e.pos.z) - e.radius - 0.5);
         const edx = e.pos.x - _v2.x;
@@ -1665,12 +2010,10 @@ export class NanoMedikaEngine {
         e.mesh.position.copy(e.pos);
       }
 
-      // Enemy Attack Telegraph & Firing
       const dist = e.pos.distanceTo(this.podState.pos);
       if (dist < 58 && !e.isBossShieldNode) {
         e.attackTimer -= dt * slowMult;
         if (e.attackTimer <= 0.45 && e.windupTimer <= 0) {
-          // Telegraph windup scale pulse
           e.windupTimer = 0.45;
         }
         if (e.windupTimer > 0) {
@@ -1685,7 +2028,6 @@ export class NanoMedikaEngine {
           this.audio.playEnemyFire(e.kind);
           if (e.kind === 'boss') {
             e.attackTimer = 2.1;
-            // Boss radial volley of 5 viral shock orbs
             for (let k = -2; k <= 2; k++) {
               _v1.subVectors(this.podState.pos, e.pos).normalize();
               _v1.x += k * 0.14;
@@ -1701,7 +2043,6 @@ export class NanoMedikaEngine {
         }
       }
 
-      // Body collision with Pod
       const minDist = this.podState.radius + e.radius;
       if (dist < minDist) {
         _v1.subVectors(this.podState.pos, e.pos).normalize();
@@ -1712,11 +2053,10 @@ export class NanoMedikaEngine {
   }
 
   private damageEnemy(e: EnemyEntity, dmg: number, isHeavy: boolean): void {
-    // Check if Boss still has active shield nodes
     if (e.kind === 'boss') {
       const activeNodes = this.bossShieldNodes.filter((n) => !n.shieldDestroyed);
       if (activeNodes.length > 0) {
-        dmg *= 0.18; // Heavily shielded while shield nodes remain
+        dmg *= 0.18;
         if (Math.random() < 0.35) {
           this.bioMessage = `B.I.O.-7: "Perisai Boss masih aktif! Hancurkan ${activeNodes.length} Nodus Perisai Kuning dulu!"`;
           this.bioMessageTimer = 4;
@@ -1732,21 +2072,36 @@ export class NanoMedikaEngine {
       e.hp = 0;
       this.scene.remove(e.mesh);
       this.audio.playVirusPop(e.kind);
+      this.haptics.pulseEnemyKill(e.kind === 'boss');
       this.kills++;
       this.combo++;
       this.comboTimer = 4.0;
 
       const pts = e.kind === 'boss' ? 2500 : e.isBossShieldNode ? 450 : 120 + this.combo * 20;
       this.score += pts;
-      this.patientVitality = Math.min(100, this.patientVitality + (e.kind === 'boss' ? 18 : 1.5));
+      this.patientVitality = Math.min(100, this.patientVitality + (e.kind === 'boss' ? 16 : 1.0));
 
       const burstColor =
-        e.kind === 'rhino' ? 0x84cc16 : e.kind === 'spore' ? 0xf97316 : e.kind === 'neuro' ? 0xa855f7 : 0xf43f5e;
-      this.spawnParticleBurst(e.pos, burstColor, e.kind === 'boss' ? 48 : 18, e.kind === 'boss' ? 18 : 10);
+        e.kind === 'rhino'
+          ? 0x84cc16
+          : e.kind === 'spore'
+          ? 0xf97316
+          : e.kind === 'neuro'
+          ? 0xa855f7
+          : 0xf43f5e;
+      this.spawnParticleBurst(
+        e.pos,
+        burstColor,
+        e.kind === 'boss' ? 48 : 18,
+        e.kind === 'boss' ? 18 : 10
+      );
 
       if (isHeavy || e.kind === 'boss' || e.isBossShieldNode) {
-        this.hitstopTimer = 0.045;
-        this.shakeIntensity = e.kind === 'boss' ? 0.65 : 0.28;
+        this.hitstopTimer = e.kind === 'boss' ? 0.095 : 0.05;
+        this.shakeIntensity = Math.max(this.shakeIntensity, e.kind === 'boss' ? 1.15 : 0.44);
+        this.impactFlashKind = e.kind === 'boss' ? 'bossKill' : 'heavyKill';
+        this.impactEventId++;
+        this.emitHudSnapshot();
       }
 
       if (e.isBossShieldNode) {
@@ -1759,7 +2114,6 @@ export class NanoMedikaEngine {
         this.bioMessageTimer = 6;
       }
 
-      // Chance to drop bio-capsule pickup
       if (!e.isBossShieldNode && e.kind !== 'boss' && Math.random() < 0.42) {
         const pkKind = this.hull < 65 ? 'heal' : Math.random() < 0.5 ? 'heal' : 'energy';
         const pkMesh = createBioPickup(pkKind);
@@ -1776,10 +2130,10 @@ export class NanoMedikaEngine {
 
       if (e.kind === 'boss') {
         this.bossDefeated = true;
-        this.patientVitality = Math.max(this.patientVitality, 96);
+        this.patientVitality = Math.max(this.patientVitality, 92);
         this.audio.playPickup();
         this.bioMessage =
-          'B.I.O.-7: "Chrono-Virus Omega musnah! Terobos lorong pencernaan panjang hingga gerbang keluar Anus!"';
+          'B.I.O.-7: "Chrono-Virus Omega musnah! Terobos jaringan hati, ginjal & usus panjang hingga keluar Anus!"';
         this.bioMessageTimer = 9;
         this.persistProgress(false);
       }
@@ -1790,10 +2144,14 @@ export class NanoMedikaEngine {
     if (this.invulnTimer > 0 || this.phase !== 'playing') return;
     this.hull = Math.max(0, this.hull - dmg);
     this.invulnTimer = 0.55;
-    this.shakeIntensity = 0.42;
-    this.hitstopTimer = 0.035;
+    this.shakeIntensity = Math.max(this.shakeIntensity, Math.min(1.0, 0.48 + dmg * 0.028));
+    this.hitstopTimer = 0.045;
+    this.impactFlashKind = 'damage';
+    this.impactEventId++;
     this.audio.playHit(true);
-    this.spawnParticleBurst(this.podState.pos, 0xf43f5e, 14, 9);
+    this.haptics.pulseDamageTaken();
+    this.spawnParticleBurst(this.podState.pos, 0xf43f5e, 18, 11);
+    this.emitHudSnapshot();
 
     if (this.hull <= 0) {
       this.persistProgress(false);
@@ -1816,7 +2174,6 @@ export class NanoMedikaEngine {
       p.pos.addScaledVector(p.vel, dt);
       p.mesh.position.copy(p.pos);
 
-      // Tunnel wall impact check
       getTunnelCenterAtZ(p.pos.z, _v1);
       const maxR = getTunnelRadiusAtZ(p.pos.z);
       if (Math.hypot(p.pos.x - _v1.x, p.pos.y - _v1.y) > maxR) {
@@ -1827,7 +2184,6 @@ export class NanoMedikaEngine {
       }
 
       if (p.fromPlayer) {
-        // Check hit against enemies
         for (let j = 0; j < this.enemies.length; j++) {
           const e = this.enemies[j];
           if (e.hp <= 0) continue;
@@ -1846,7 +2202,6 @@ export class NanoMedikaEngine {
           }
         }
       } else {
-        // Enemy orb vs Player Pod
         const hitDist = p.radius + this.podState.radius;
         if (p.pos.distanceToSquared(this.podState.pos) <= hitDist * hitDist) {
           p.active = false;
@@ -1902,6 +2257,7 @@ export class NanoMedikaEngine {
         }
         this.bioMessageTimer = 3.5;
         this.audio.playPickup();
+        this.haptics.pulsePickup();
         this.spawnParticleBurst(pk.pos, pk.kind === 'heal' ? 0x10b981 : 0x38bdf8, 12, 6);
         pk.active = false;
         this.scene.remove(pk.mesh);
@@ -1919,7 +2275,8 @@ export class NanoMedikaEngine {
         this.spawnParticleBurst(gate.mesh.position, 0x34d399, 28, 14);
         this.scene.remove(gate.mesh);
         this.audio.playGateOpen();
-        const nextZone = ZONES[Math.min(5, gate.zone + 1)];
+        this.haptics.pulseGateOpen();
+        const nextZone = ZONES[Math.min(9, gate.zone + 1)];
         this.bioMessage = `B.I.O.-7: "Area bersih! Gerbang menuju ${nextZone.name} terbuka!"`;
         this.bioMessageTimer = 6;
       }
@@ -1927,9 +2284,13 @@ export class NanoMedikaEngine {
   }
 
   private render(): void {
-    const isLabEnding = this.phase === 'ending' || this.phase === 'victory';
-    // Project searchlight or sunlit lab window into screen UV for volumetric God-Rays (zero GC)
-    if (isLabEnding) {
+    const isBrightLab =
+      this.phase === 'title' ||
+      this.phase === 'intro' ||
+      this.phase === 'ending' ||
+      this.phase === 'victory';
+
+    if (isBrightLab) {
       _v1.set(-2.2, 3.2, -5.0);
       _v2.set(0, 1.4, 0.2);
     } else {
@@ -1942,7 +2303,6 @@ export class NanoMedikaEngine {
       THREE.MathUtils.clamp((_v1.y + 1) * 0.5, 0.15, 0.85)
     );
 
-    // Bind live dynamic CubeCamera reflection map onto cockpit & hull when RT is ON
     const cubeTex = this.rtPipeline.getCubeEnvTexture();
     if (cubeTex && this.rayTracingEnabled && !this.isSoftwareGl) {
       this.materials.cockpitGlass.envMap = cubeTex;
@@ -1961,7 +2321,7 @@ export class NanoMedikaEngine {
       _lightUv,
       this.animTime,
       this.rayTracingEnabled,
-      isLabEnding
+      isBrightLab
     );
   }
 
@@ -1984,17 +2344,15 @@ export class NanoMedikaEngine {
     const distanceMeters = Math.max(0, Math.round(2 - this.podState.pos.z));
     const overallProgress = THREE.MathUtils.clamp(distanceMeters / targetExitMeters, 0, 1);
     const endlessSector =
-      this.podState.pos.z < -760
-        ? Math.min(10, Math.floor((-this.podState.pos.z - 760) / 172) + 1)
+      this.podState.pos.z < -1780
+        ? Math.min(25, Math.floor((-this.podState.pos.z - 1780) / 172) + 1)
         : 0;
 
-    // Minimap telemetry calculations
     getTunnelCenterAtZ(this.podState.pos.z, _v1);
     const localRad = Math.max(1, getTunnelRadiusAtZ(this.podState.pos.z));
     const lateralX = THREE.MathUtils.clamp((this.podState.pos.x - _v1.x) / localRad, -1, 1);
     const lateralY = THREE.MathUtils.clamp((this.podState.pos.y - _v1.y) / localRad, -1, 1);
 
-    // Sample curved anatomical tunnel ahead/behind player (-48..+24 in Z)
     const tunnelSamples: { dx: number; dz: number; r: number }[] = [];
     for (let dz = 24; dz >= -48; dz -= 8) {
       const sz = this.podState.pos.z + dz;
@@ -2006,14 +2364,17 @@ export class NanoMedikaEngine {
       });
     }
 
-    // Target organ beacon based on current zone
     const targetOrganMap: Record<ZoneIndex, { z: number; label: string }> = {
-      0: { z: -126, label: 'Katup Faring' },
-      1: { z: -324, label: 'Gerbang Saraf' },
-      2: { z: -534, label: 'Katup Jantung' },
-      3: { z: -754, label: 'Lorong Usus' },
-      4: { z: ANUS_EXIT_Z, label: 'Gerbang Anus' },
-      5: { z: ANUS_EXIT_Z, label: 'Keluar Lab!' },
+      0: { z: -134, label: 'Katup Faring' },
+      1: { z: -474, label: 'Arteri Utama' },
+      2: { z: -914, label: 'Gerbang Saraf' },
+      3: { z: -1414, label: 'Katup Jantung' },
+      4: { z: -1774, label: 'Sirkulasi Hati' },
+      5: { z: -2420, label: 'Labirin Ginjal' },
+      6: { z: -3120, label: 'Usus Halus' },
+      7: { z: -4420, label: 'Kolon Endless' },
+      8: { z: ANUS_EXIT_Z, label: 'Gerbang Anus' },
+      9: { z: ANUS_EXIT_Z, label: 'Keluar Lab!' },
     };
     const organSpec = targetOrganMap[this.currentZone];
     getTunnelCenterAtZ(organSpec.z, _v2);
@@ -2021,7 +2382,6 @@ export class NanoMedikaEngine {
     const nextOrganDz = organSpec.z - this.podState.pos.z;
     const nextOrganDistance = Math.round(Math.hypot(nextOrganDx, nextOrganDz));
 
-    // Nearby active enemies within radar radius (64 units)
     const minimapEnemies: MinimapEnemyBlip[] = [];
     for (let i = 0; i < this.enemies.length; i++) {
       const e = this.enemies[i];
@@ -2034,6 +2394,36 @@ export class NanoMedikaEngine {
           dz,
           kind: e.kind,
           isShieldNode: e.isBossShieldNode,
+        });
+      }
+    }
+
+    // Nearby side branches & central bifurcation obstacles for Minimap
+    const minimapBranches: MinimapBranchBlip[] = [];
+    for (let i = 0; i < BRANCH_LOCATIONS.length; i++) {
+      const b = BRANCH_LOCATIONS[i];
+      const dz = b.z - this.podState.pos.z;
+      if (dz <= 28 && dz >= -58) {
+        getTunnelCenterAtZ(b.z, _v2);
+        const rad = getTunnelRadiusAtZ(b.z);
+        minimapBranches.push({
+          dx: _v2.x + b.side * rad - this.podState.pos.x,
+          dz,
+          side: b.side,
+        });
+      }
+    }
+
+    const minimapObstacles: MinimapObstacleBlip[] = [];
+    for (let i = 0; i < FORK_NODES.length; i++) {
+      const fn = FORK_NODES[i];
+      const dz = fn.z - this.podState.pos.z;
+      if (dz <= 28 && dz >= -58) {
+        getTunnelCenterAtZ(fn.z, _v2);
+        minimapObstacles.push({
+          dx: _v2.x + fn.xOffset - this.podState.pos.x,
+          dz,
+          r: 2.5,
         });
       }
     }
@@ -2055,21 +2445,28 @@ export class NanoMedikaEngine {
       distanceMeters,
       targetExitMeters,
       endlessSector,
-      bossActive: this.currentZone === 3 && !!this.bossEntity && this.bossEntity.hp > 0,
+      bossActive: this.currentZone === 4 && !!this.bossEntity && this.bossEntity.hp > 0,
       bossDefeated: this.bossDefeated,
       bossHp: this.bossEntity ? Math.ceil(this.bossEntity.hp) : 0,
-      bossMaxHp: this.bossEntity ? this.bossEntity.maxHp : 720,
+      bossMaxHp: this.bossEntity ? this.bossEntity.maxHp : 760,
       bossName: 'CHRONO-VIRUS OMEGA',
       bioMessage: this.bioMessage,
       bioAssistReady: this.bioAssistCooldown <= 0,
       rayTracingEnabled: this.rayTracingEnabled,
       isSoftwareGl: this.isSoftwareGl,
       muted: this.audio.isMuted(),
+      hapticsEnabled: this.haptics.isEnabled(),
+      hapticsSupported: this.haptics.isSupported(),
       boostCooldown: Number(this.boostCooldown.toFixed(1)),
       elapsedSeconds: Math.floor(this.elapsedSeconds),
+      introStage: this.introStage,
+      introSubtitle: this.introSubtitle,
       endingStage: this.endingStage,
       endingSubtitle: this.endingSubtitle,
       endingReadyForSummary: this.endingReadyForSummary,
+      impactEventId: this.impactEventId,
+      impactFlashKind: this.impactFlashKind,
+      screenShakeStrength: THREE.MathUtils.clamp(this.shakeIntensity, 0, 1),
       targetLock: { ...this.lockedTargetSnap },
       minimap: {
         playerZ: this.podState.pos.z,
@@ -2083,6 +2480,8 @@ export class NanoMedikaEngine {
         nextOrganDz,
         tunnelSamples,
         enemies: minimapEnemies,
+        branches: minimapBranches,
+        obstacles: minimapObstacles,
       },
     });
   }
